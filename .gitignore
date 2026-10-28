@@ -1,0 +1,3 @@
+# Python caches of tools/ (the page loads nothing from there)
+__pycache__/
+*.pyc

@@ -1,0 +1,95 @@
+/* Dispatch Lab — the app's settings for Vici's components (buttons, icon buttons, tags, tooltips),
+ * the run switch and the playback speed, which Vici has no component for, and the AI label. As in
+ * Rebate Hunter, text and targets keep projector sizes: nothing clickable is smaller than 40 px
+ * (DESIGN.md, deviations). */
+
+/* Buttons ------------------------------------------------------------------------------------ */
+.vc-button { --_h: var(--hit); --_fs: var(--vc-font-size-md); white-space: nowrap; }
+.vc-button.button-compact { --_h: 40px; --_px: 14px; --_fs: var(--vc-font-size-sm); }
+.vc-button[aria-disabled="true"],
+.vc-icon-button[aria-disabled="true"] { pointer-events: auto; }
+.vc-button[aria-disabled="true"]:hover,
+.vc-button[aria-disabled="true"]:active { background: var(--_bg); translate: none; }
+
+/* Icon buttons: a 44 px hexagon cell. */
+.vc-icon-button { --_h: var(--hit); }
+
+/* A button's words that give way to its icon on small screens: its tooltip names it then. */
+.vc-tooltip-anchor:has(> button .btn-text) > .vc-tooltip { visibility: var(--words-tip, hidden); }
+/* A tooltip shows on hover and on keyboard focus, not when a dialog moves the focus after a click. */
+.vc-tooltip-anchor:not(:hover):not(:has(:focus-visible)) > .vc-tooltip { visibility: hidden; }
+
+/* Toggle groups (the run switch, the speed) ---------------------------------------------------- */
+/* Groups of toggle buttons with aria-pressed, drawn like Vici's segmented control (Vici's own is a
+   radio group, which would change the keyboard path). 44 px in all. */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 1px;
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-md);
+  background: var(--vc-bg-subtle);
+}
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vc-space-2);
+  min-height: 40px;
+  min-width: 44px;
+  padding: 0 var(--vc-space-3);
+  border: 0;
+  border-radius: calc(var(--vc-radius-md) - 1px);
+  background: transparent;
+  color: var(--vc-text-muted);
+  font: var(--vc-weight-semibold) var(--vc-font-size-md) / 1 var(--vc-font-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--vc-duration-quick) var(--vc-ease-standard), color var(--vc-duration-quick) var(--vc-ease-standard);
+}
+.segmented button:hover { color: var(--vc-text); }
+.segmented button[aria-pressed="true"] {
+  background: var(--vc-surface);
+  color: var(--vc-text);
+  box-shadow: var(--vc-shadow-sm), 0 0 0 1px var(--vc-border-subtle);
+}
+.segmented button:focus-visible { outline-offset: 1px; }
+
+/* The run switch: each run's series swatch (a hexagon in its chart colour) and its final score. */
+.run-switch button { gap: 8px; padding: 0 12px; }
+.run-switch .run-score { color: var(--vc-text-subtle); font-weight: var(--vc-weight-medium); font-size: var(--vc-font-size-sm); }
+.run-switch button[aria-pressed="true"] .run-score { color: var(--vc-text-muted); }
+
+/* A run's series swatch: a flat-top hexagon in the run's colour. */
+.run-swatch { display: inline-block; flex: none; width: calc(13px * 1.1547); height: 13px; clip-path: var(--vc-hex); background: var(--run-color, var(--vc-text)); }
+[data-run="baseline"] { --run-color: var(--run-baseline); }
+[data-run="estimate"] { --run-color: var(--run-estimate); }
+[data-run="optimized"] { --run-color: var(--run-optimized); }
+
+/* Tags ----------------------------------------------------------------------------------------- */
+.vc-tag { --_h: 26px; font-size: var(--fs-xs); }
+
+/* The fjord tag of a checked score: the browser's score is the Python runner's to the last digit. */
+.verified-tag .vc-icon { color: var(--vc-info-solid); }
+
+/* AI label ------------------------------------------------------------------------------------ */
+/* After IBM Carbon for AI: Vici's feature tag (lilac, the sparkle, "AI") on content Claude wrote
+   or estimated, a 40 px target around it, and the explanation in Vici's popover look. */
+.ai-label {
+  display: inline-grid; place-items: center;
+  min-width: 40px; min-height: 40px; padding: 0 2px; margin: -8px 0;
+  border: 0; border-radius: var(--vc-radius-md); background: transparent; cursor: pointer;
+  vertical-align: middle;
+}
+.ai-label .ai-label-chip { --_h: 24px; font-weight: var(--vc-weight-bold); letter-spacing: 0.02em; }
+.ai-label:hover .ai-label-chip,
+.ai-label[aria-expanded="true"] .ai-label-chip { --_bg: var(--vc-feature-border); }
+.ai-tip.vc-popover {
+  position: fixed; z-index: 2500;
+  width: min(340px, calc(100vw - 24px));
+  color: var(--vc-text-muted); line-height: 1.45; font-size: var(--vc-font-size-sm);
+}
+.ai-tip[hidden] { display: none; }
+.ai-tip strong { display: block; margin-bottom: 4px; color: var(--vc-text); font-size: var(--vc-font-size-md); }
+.ai-tip p { margin: 4px 0 0; }

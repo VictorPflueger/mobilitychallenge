@@ -1,0 +1,20 @@
+{
+ "map": "neufrankfurt_19agents.json",
+ "map_sha256": "8b7a7b6e588c16369bac6d8226e7f52748f340b62ed33731b1b3250bea0d5228",
+ "python": "3.13.18",
+ "flatland": "4.2.2",
+ "runs": {
+  "baseline": {
+   "reward": -74022.59999999998,
+   "steps": 1248
+  },
+  "estimate": {
+   "reward": -36576.6,
+   "steps": 1248
+  },
+  "optimized": {
+   "reward": -1014.0,
+   "steps": 597
+  }
+ }
+}

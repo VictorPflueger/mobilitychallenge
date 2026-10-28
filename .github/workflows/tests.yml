@@ -1,0 +1,59 @@
+# Runs the Node.js and browser suites on every push to this branch (tests/README.md). The page itself
+# has no build step and no dependencies; Playwright is installed here only for the browser suites.
+# The Python checks (tools/) need flatland and the planner, and run where those are installed.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Engine against flatland, map data, colours, page icon, Vici's files (Node.js only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: The challenge's main branch, for the map comparison
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: challenge
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tests/run-all.mjs tokens page-icon vici-files data engine negctl
+        env:
+          DL_CHALLENGE: challenge
+
+  browser:
+    name: Browser suites (Playwright, Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache the Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.56.0-chromium-${{ runner.os }}
+      - run: npm install -g playwright@1.56.0 && npx playwright install --with-deps chromium
+      - run: NODE_PATH="$(npm root -g)" node tests/run-all.mjs smoke layout hexagon
+        env:
+          DL_TEST_OUT: ${{ runner.temp }}/dispatch-lab-tests
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: ${{ runner.temp }}/dispatch-lab-tests

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Everything comes from this site: scripts, styles, fonts, images and the scenario's data. The
+       page talks to no other server; the simulation runs in the browser. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Dispatch Lab runs the T-Brain Mobility Challenge's Neu-Frankfurt scenario in the browser: 19 trains under three dispatching strategies, the challenge's baseline, an estimate of the leaderboard's current best and an optimized planner, simulated and scored with the challenge's own rules.">
+  <title>Dispatch Lab — T-Brain Mobility Challenge</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+  <!-- The look comes from Victor's design system Vici, copied unchanged into vici/ (vici/README.md).
+       It sits in cascade layers, so the app's own stylesheets below refine it without !important. -->
+  <link rel="stylesheet" href="vici/dist/vici.min.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/map.css">
+  <link rel="stylesheet" href="css/panel.css">
+  <link rel="stylesheet" href="css/modals.css">
+
+  <!-- The theme before the page is drawn (light unless the visitor chose dark), then Vici's script. -->
+  <script src="js/theme.js"></script>
+  <script src="vici/dist/vici.js" defer></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body class="app-shell">
+  <a class="vc-skip-link skip-link" href="#panel">Skip to the run's details</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="vc-cell vc-cell--lilac" aria-hidden="true"><span class="vc-icon vc-icon--flag"></span></span>
+      <div class="brand-text">
+        <span class="brand-name">Dispatch Lab</span>
+        <span class="brand-sub">T-Brain Mobility Challenge · Neu-Frankfurt, 19 trains</span>
+      </div>
+    </div>
+
+    <div class="header-badges">
+      <span id="mode-badge" class="vc-tag mode-badge" data-mode="simulation" title="Simulated trains on the challenge's fictional network, not real operations">SIMULATION</span>
+      <span class="vc-tooltip-anchor">
+        <button type="button" id="btn-about" class="vc-button vc-button--secondary about-btn" aria-labelledby="tip-about"><span class="vc-icon vc-icon--info" aria-hidden="true"></span><span class="btn-text">How it works</span></button>
+        <span class="vc-tooltip vc-tooltip--bottom" role="tooltip" id="tip-about">How it works</span>
+      </span>
+      <!-- Vici's theme toggle (vici.js switches the theme and remembers the choice). -->
+      <span class="vc-tooltip-anchor">
+        <button type="button" class="vc-icon-button theme-toggle" data-vc-theme-toggle aria-labelledby="tip-theme"><span class="vc-icon vc-icon--moon vc-when-light" aria-hidden="true"></span><span class="vc-icon vc-icon--sun vc-when-dark" aria-hidden="true"></span></button>
+        <span class="vc-tooltip vc-tooltip--bottom" role="tooltip" id="tip-theme">Dark theme</span>
+      </span>
+    </div>
+
+    <div id="kpis" class="kpis" role="group" aria-label="Key figures of the run on screen"></div>
+  </header>
+
+  <nav id="controls" class="controls" aria-label="Run and playback"></nav>
+
+  <main class="workspace">
+    <section class="map-panel" aria-label="The rail network of Neu-Frankfurt with its trains">
+      <div id="map"></div>
+    </section>
+    <section id="panel" class="side-panel" aria-label="The run's details" tabindex="-1"></section>
+  </main>
+
+  <footer class="app-footer">
+    <p class="footer-note"><span class="vc-icon vc-icon--check" aria-hidden="true"></span><span>Simulated and scored in your browser<span class="long">, checked step by step against the Python runner</span></span></p>
+    <p class="vc-byline">
+      <span class="vc-byline__label">Built by</span>
+      <span class="vc-byline__person"><span class="vc-avatar vc-avatar--xs"><img src="vici/assets/brand/portrait-96.jpg" alt="" width="96" height="96"></span><span class="vc-byline__name">Victor Pflüger</span></span>
+      <span class="vc-byline__links">
+        <a class="vc-byline__icon" href="https://www.linkedin.com/in/victorpflueger" target="_blank" rel="author noopener" aria-label="Victor Pflüger on LinkedIn (opens in a new tab)"><img class="vc-platform-mark" src="vici/assets/marks/linkedin.png" alt="" width="840" height="779"></a>
+        <a class="vc-byline__icon" href="https://victorpflueger.github.io/VIP/index.html" target="_blank" rel="author noopener" aria-label="Victor Pflüger's website (opens in a new tab)"><span class="vc-icon vc-icon--globe-hex" aria-hidden="true"></span></a>
+      </span>
+    </p>
+    <div class="footer-end"></div>
+  </footer>
+
+  <div id="banners" class="banner-stack"></div>
+
+  <!-- Boot screen: removed by js/main.js once the runs are simulated. Without JavaScript modules (for
+       example when opened from disk via file://) it stays and explains what to do. -->
+  <div id="boot" class="boot" data-state="loading">
+    <div class="boot-card">
+      <div class="boot-brand">
+        <span class="vc-cell vc-cell--lilac vc-cell--xl" aria-hidden="true"><span class="vc-icon vc-icon--flag"></span></span>
+        <span class="brand-name">Dispatch Lab</span>
+      </div>
+      <p class="boot-status" role="status" aria-live="polite"><span class="vc-spinner" aria-hidden="true"></span><span id="boot-status">Starting Dispatch Lab…</span></p>
+      <ul id="boot-steps" class="boot-steps"></ul>
+      <p id="boot-detail" class="vc-alert vc-alert--danger boot-detail" hidden></p>
+      <div class="boot-help">
+        <p>Still on this screen? Dispatch Lab has to be served over http or https. Browsers block its program modules when <code>index.html</code> is opened straight from disk, at an address starting with <code>file://</code>.</p>
+        <p>To run it on your computer, open a terminal in this folder, run <code>python -m http.server 8000</code>, then open <code>http://localhost:8000</code>. Published on GitHub Pages, it works as is.</p>
+      </div>
+      <noscript><p class="boot-detail">Dispatch Lab needs JavaScript. Allow it for this site and reload the page.</p></noscript>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,156 @@
+/* Dispatch Lab — the network map: the canvas with Vici's honeycomb, tracks, platforms, labels,
+ * the trains, the floating caption and the legend strip (after Rebate Hunter's board and the
+ * Navigator's map). Every colour is one of Vici's semantic tokens; JavaScript draws no colour. */
+
+#map {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  background-color: var(--vc-bg-sunken);
+  background-image: var(--vc-honeycomb-pattern);
+  background-size: var(--vc-honeycomb-pattern-size);
+}
+
+/* The drawing area: under the caption and the views, above the legend strip (its height is
+   measured by js/ui/map.js), so nothing floats over the network. */
+.map-svg {
+  position: absolute;
+  top: 76px; left: 12px;
+  width: calc(100% - 24px);
+  height: calc(100% - 76px - var(--legend-h, 44px) - 24px);
+  overflow: hidden;
+}
+/* Numbers only where the markers are large enough to read them. */
+.map-svg[data-numbers="false"] .train-num { display: none; }
+
+/* The network at rest: ink lines, platforms on the surface, buffer stops as bars. */
+.track { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 2.4px; stroke-linecap: square; stroke-linejoin: miter; }
+.buffer { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 3px; stroke-linecap: butt; }
+.level-free { fill: var(--vc-bg-sunken); stroke: var(--vc-neutral-solid); stroke-width: 1.5px; }
+.platform { fill: var(--vc-surface); stroke: var(--vc-border-strong); stroke-width: 1.5px; }
+/* The stops of the selected train: an ink frame (a selection is always ink, never merlot). */
+.platform[data-stop="true"] { stroke: var(--vc-text); stroke-width: 2.5px; }
+
+.station-label {
+  fill: var(--vc-text);
+  font-family: var(--vc-font-text);
+  font-weight: var(--vc-weight-semibold);
+  paint-order: stroke;
+  stroke: var(--vc-bg-sunken);
+  stroke-width: 0.35;
+  stroke-linejoin: round;
+}
+.station-label.minor { fill: var(--vc-text-muted); font-weight: var(--vc-weight-medium); }
+
+/* Trains: flat-top hexagons with their number. Filled = moving, hollow = standing; ink = on time,
+   the warning tone = behind its timetable, the danger tone = blocked by a train in its way. */
+.train { cursor: pointer; }
+.train-hex { stroke-width: 0.2; }
+.train-num { font: 700 0.92px var(--vc-font-text); font-variant-numeric: tabular-nums; pointer-events: none; }
+.train-ring, .train-alert { fill: none; display: none; }
+
+.train[data-tone="ontime"] .train-hex { fill: var(--vc-text); stroke: var(--vc-text); }
+.train[data-tone="ontime"] .train-num { fill: var(--vc-surface); }
+/* Late: the warning family's mid step (light in the light theme, dark in the dark one), so it never
+   looks like the ink of a train on time in either theme; late trains stay filled even when standing. */
+.train[data-tone="late"] .train-hex { fill: var(--vc-warning-border); stroke: var(--vc-warning-text); }
+.train[data-tone="late"] .train-num { fill: var(--vc-text); }
+/* Blocked: the danger family's mid step with its solid outline and a dashed ring around it. */
+.train[data-tone="blocked"] .train-hex { fill: var(--vc-danger-border); stroke: var(--vc-danger-solid); }
+.train[data-tone="blocked"] .train-num { fill: var(--vc-text); }
+.train[data-tone="blocked"] .train-alert { display: inline; stroke: var(--vc-danger-solid); stroke-width: 0.14; stroke-dasharray: 0.35 0.25; }
+
+.train[data-motion="standing"] .train-hex { fill: var(--vc-surface); stroke-width: 0.26; }
+.train[data-motion="standing"][data-tone="ontime"] .train-num { fill: var(--vc-text); }
+.train[data-motion="standing"][data-tone="late"] .train-hex { fill: var(--vc-warning-border); stroke-width: 0.2; }
+.train[data-motion="standing"][data-tone="blocked"] .train-hex { fill: var(--vc-danger-bg); stroke: var(--vc-danger-solid); }
+.train[data-motion="standing"][data-tone="blocked"] .train-num { fill: var(--vc-danger-text); }
+
+/* The selected train: an ink ring around it. */
+.train[data-selected="true"] .train-ring { display: inline; stroke: var(--vc-text); stroke-width: 0.18; }
+.train:hover .train-ring { display: inline; stroke: var(--vc-border-strong); stroke-width: 0.14; }
+.train[data-selected="true"]:hover .train-ring { stroke: var(--vc-text); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .train[data-tone="blocked"] .train-alert { animation: alertPulse 1.2s ease-in-out infinite; }
+}
+@keyframes alertPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ---- the floating caption (as on the Navigator's map) ------------------------------------------ */
+.map-caption {
+  position: absolute; top: 12px; left: 12px; z-index: 30;
+  max-width: calc(100% - 24px - var(--tools-w, 0px));
+  min-height: 52px;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 6px 16px;
+  border-radius: var(--vc-radius-lg);
+  background: color-mix(in oklab, var(--vc-surface) 96%, transparent);
+  border: 1px solid var(--vc-border);
+  box-shadow: var(--vc-shadow-md);
+}
+.map-caption .cap-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.map-caption strong {
+  font-family: var(--vc-font-display); font-weight: var(--vc-weight-semibold); font-size: 1.08rem; line-height: 1.2;
+  letter-spacing: var(--vc-tracking-heading); color: var(--vc-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.map-caption .cap-sub { color: var(--vc-text-muted); font-size: var(--fs-xs); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+
+/* ---- the views (floating, as Rebate Hunter's board views) ------------------------------------------ */
+#map { --tools-w: 316px; }
+.map-views { position: absolute; top: 12px; right: 12px; z-index: 30; box-shadow: var(--vc-shadow-md); }
+.map-views button { font-size: var(--vc-font-size-sm); }
+
+/* ---- the legend strip ---------------------------------------------------------------------------- */
+.map-legend {
+  position: absolute; left: 12px; bottom: 12px; z-index: 20;
+  max-width: calc(100% - 24px);
+  padding: 9px 14px;
+  background: color-mix(in oklab, var(--vc-surface) 96%, transparent);
+  border: 1px solid var(--vc-border-subtle);
+  border-radius: var(--vc-radius-lg);
+  font-size: var(--vc-font-size-sm);
+  box-shadow: var(--vc-shadow-md);
+}
+.legend-items { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.legend-items > li { margin: 0; }
+.legend-items > li::before { display: none; }
+.legend-item { display: inline-flex; align-items: center; gap: 8px; color: var(--vc-text-muted); white-space: nowrap; line-height: 1.3; }
+.legend-sep { width: 1px; height: 18px; background: var(--vc-border); }
+.legend-swatch { width: calc(18px * 1.12); height: 18px; flex: none; overflow: visible; }
+.legend-swatch .train-hex { stroke-width: 0.2; }
+.legend-swatch .train-alert { display: none; fill: none; }
+.legend-swatch[data-tone="ontime"] .train-hex { fill: var(--vc-text); stroke: var(--vc-text); }
+.legend-swatch[data-tone="late"] .train-hex { fill: var(--vc-warning-border); stroke: var(--vc-warning-text); }
+.legend-swatch[data-tone="blocked"] .train-hex { fill: var(--vc-danger-border); stroke: var(--vc-danger-solid); }
+.legend-swatch[data-tone="blocked"] .train-alert { display: inline; stroke: var(--vc-danger-solid); stroke-width: 0.14; stroke-dasharray: 0.35 0.25; }
+.legend-swatch[data-motion="standing"] .train-hex { fill: var(--vc-surface); stroke-width: 0.26; }
+.legend-swatch[data-motion="standing"][data-tone="blocked"] .train-hex { fill: var(--vc-danger-bg); }
+.legend-line { width: 28px; height: 12px; flex: none; overflow: visible; }
+.legend-line path { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 2.4px; stroke-linecap: square; stroke-linejoin: miter; }
+.legend-line.buffer path { stroke-linecap: butt; }
+.legend-line.platform rect { fill: var(--vc-surface); stroke: var(--vc-border-strong); stroke-width: 1.5px; }
+.legend-line.crossing rect { fill: var(--vc-bg-sunken); stroke: var(--vc-neutral-solid); stroke-width: 1.5px; }
+.method-symbols .legend-line.crossing rect { fill: var(--vc-surface); }
+
+/* A laptop's map panel (1,280 px windows): the legend strip tightens to stay on one row. */
+@container mappanel (max-width: 820px) {
+  .legend-items { gap: 6px 12px; }
+  .legend-item { gap: 6px; }
+}
+
+/* Narrow panels (a container query on the map panel): the views drop under the caption, and the
+   legend strip wraps to more rows (the drawing area shrinks with it). */
+@container mappanel (max-width: 720px) {
+  #map { --tools-w: 0px; }
+  .map-views { top: 72px; }
+  .map-svg { top: 128px; height: calc(100% - 128px - var(--legend-h, 44px) - 24px); left: 6px; width: calc(100% - 12px); }
+  .map-legend { padding: 7px 12px; }
+  .legend-items { gap: 4px 12px; }
+}
+
+/* Forced colours (Windows contrast themes): tracks and trains keep visible lines. */
+@media (forced-colors: active) {
+  .track, .buffer, .platform, .level-free { forced-color-adjust: none; stroke: CanvasText; }
+  .train-hex { forced-color-adjust: none; stroke: CanvasText; }
+  .train-num, .station-label { forced-color-adjust: none; fill: CanvasText; stroke: Canvas; }
+}
