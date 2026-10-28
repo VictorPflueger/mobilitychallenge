@@ -29,9 +29,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node tests/run-all.mjs tokens page-icon vici-files data engine negctl
+      - name: Run the suites
+        shell: bash
+        run: node tests/run-all.mjs tokens page-icon vici-files data engine negctl 2>&1 | tee "$RUNNER_TEMP/node.log"; exit "${PIPESTATUS[0]}"
         env:
           DL_CHALLENGE: challenge
+      # Each failed check as an annotation, so it shows on the run's summary page.
+      - if: failure()
+        shell: bash
+        run: grep -E "^(FAIL|✗)" "$RUNNER_TEMP/node.log" | head -40 | while IFS= read -r line; do echo "::error title=Failed check::$line"; done
 
   browser:
     name: Browser suites (Playwright, Chromium)
@@ -49,9 +55,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-1.56.0-chromium-${{ runner.os }}
       - run: npm install -g playwright@1.56.0 && npx playwright install --with-deps chromium
-      - run: NODE_PATH="$(npm root -g)" node tests/run-all.mjs smoke layout hexagon
+      - name: Run the suites
+        shell: bash
+        run: NODE_PATH="$(npm root -g)" node tests/run-all.mjs smoke layout hexagon 2>&1 | tee "$RUNNER_TEMP/browser.log"; exit "${PIPESTATUS[0]}"
         env:
           DL_TEST_OUT: ${{ runner.temp }}/dispatch-lab-tests
+      - if: failure()
+        shell: bash
+        run: grep -E "^(FAIL|✗)" "$RUNNER_TEMP/browser.log" | head -40 | while IFS= read -r line; do echo "::error title=Failed check::$line"; done
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
