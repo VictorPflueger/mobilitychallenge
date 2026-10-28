@@ -81,6 +81,32 @@ try {
     check(playing === "Playing" && mid > 20, `playback: Play runs the episode (status ${playing}, step ${mid} after 1.5 s at ×16)`);
     const label = await text(page, "#step-label");
     check(/^Step [\d,]+ of 597$/.test(label), `playback: the step label follows (${label})`);
+    // Playback started inside a frame whose time stamp lies before the click (the browser stamps a
+    // frame before it handles input): time must not run backwards past the first step.
+    await page.click("#btn-play");
+    const early = await page.evaluate(() => new Promise((resolve) => {
+      const lab = window.dispatchLab;
+      lab.pause();
+      lab.seek(0);
+      const real = performance.now.bind(performance);
+      performance.now = () => real() + 80;
+      lab.play();
+      performance.now = real;
+      // Watch every frame for 250 ms: the lowest step on screen and any train drawn at NaN.
+      let low = Infinity;
+      let bad = 0;
+      const until = real() + 250;
+      const watch = () => {
+        low = Math.min(low, lab.state.t);
+        bad += [...document.querySelectorAll(".train")].filter((g) => /NaN/.test(g.getAttribute("transform") || "")).length;
+        if (real() < until) requestAnimationFrame(watch);
+        else { lab.pause(); resolve({ low, bad, t: lab.state.t }); }
+      };
+      requestAnimationFrame(watch);
+    }));
+    check(early.low >= 0 && early.bad === 0 && early.t > 0, `playback: a frame stamped before the click does not run time backwards (lowest step ${early.low.toFixed(3)}, ${early.bad} trains drawn at NaN, then step ${early.t.toFixed(1)})`);
+    await page.click("#btn-play");
+    await page.waitForTimeout(300);
     // A button whose content is replaced on every frame loses clicks (mousedown and mouseup land on
     // different nodes), so Pause must keep its nodes while the run plays.
     const kept = await page.evaluate(() => new Promise((resolve) => {

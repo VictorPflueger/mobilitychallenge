@@ -153,11 +153,13 @@ function build(ctx) {
   let last = 0;
   function frame(now) {
     if (!state.playing) return;
-    const dt = Math.min(0.1, (now - last) / 1000);
-    last = now;
+    // A frame's time stamp can lie before the click that started playback (the browser stamps the
+    // frame before it handles the click), so time never runs backwards here.
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
+    last = Math.max(last, now);
     const r = run();
     const sps = SPEEDS.find((s) => s.id === state.speed).stepsPerSecond;
-    state.t = Math.min(r.steps, state.t + dt * sps);
+    state.t = Math.max(0, Math.min(r.steps, state.t + dt * sps));
     map.render(state.t);
     updateUi();
     if (state.t >= r.steps) { pause(); updateUi(true); remember(); return; }

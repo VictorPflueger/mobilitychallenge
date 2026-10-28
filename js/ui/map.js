@@ -197,7 +197,7 @@ export function createMap(root, { scenario, network, onSelect }) {
     if (!run) return;
     const f = run.frames;
     const n = f.n;
-    const step = Math.min(Math.floor(t), run.steps);
+    const step = Math.max(0, Math.min(Math.floor(t), run.steps));
     const frac = reduced ? 0 : Math.min(1, Math.max(0, t - step));
     const next = Math.min(step + 1, run.steps);
     if (!force && t === lastT) return;
