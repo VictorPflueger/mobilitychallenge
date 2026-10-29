@@ -1,26 +1,29 @@
-// Two charts on Vici's chart frame: the four scores side by side (bars with square ends, starting at
-// zero) and each run's score over the episode (lines in the runs' series colours, the leaderboard as
-// a dashed reference, a cursor at the step on screen). Plain SVG and HTML; colours come from classes.
+// Two charts on Vici's chart frame: the map's scores side by side (bars with square ends, starting
+// at zero) and each run's score over the episode (lines in the runs' series colours, the
+// leaderboard as a dashed reference where the map has one, a cursor at the step on screen). Plain SVG
+// and HTML; colours come from classes.
 
 import { h, svg } from "../dom.js";
 import { count, score } from "../format.js";
-import { LEADERBOARD, RUNS } from "../runs.js";
 import { aiLabel } from "./ailabel.js";
 import { icon } from "../icons.js";
 import { ESTIMATE_NOTE } from "../runs.js";
 
-/** The four scores as bars of lost points (a longer bar is a worse score). */
-export function comparison(runs, { selected, verified, onPick }) {
-  const rows = [
-    { id: "baseline", value: runs.get("baseline").score },
-    { id: "leaderboard", value: LEADERBOARD },
-    { id: "estimate", value: runs.get("estimate").score },
-    { id: "optimized", value: runs.get("optimized").score }
-  ];
+const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six"];
+/** "Two", "Four": a small count in words, for titles. */
+export const inWords = (n) => WORDS[n] || count(n);
+
+/**
+ * The map's scores as bars of lost points (a longer bar is a worse score): its runs, and the
+ * leaderboard's figure after the baseline where the map has one. ctx: { map, runList }.
+ */
+export function comparison(runs, { map, runList, selected, verified, onPick }) {
+  const rows = runList.map((r) => ({ id: r.id, value: runs.get(r.id).score }));
+  if (map.leaderboard !== null) rows.splice(1, 0, { id: "leaderboard", value: map.leaderboard });
   const max = Math.max(...rows.map((r) => Math.abs(r.value)));
   const list = h("ol", { class: "compare-list" });
   for (const r of rows) {
-    const meta = RUNS.find((x) => x.id === r.id);
+    const meta = runList.find((x) => x.id === r.id);
     const name = meta ? meta.label : "Current best";
     const bar = h("span", { class: "compare-bar", dataset: { run: r.id } });
     bar.style.setProperty("--w", `${Math.max(0.4, (Math.abs(r.value) / max) * 100).toFixed(2)}%`);
@@ -41,28 +44,31 @@ export function comparison(runs, { selected, verified, onPick }) {
       note));
   }
   return h("figure", { class: "vc-chart compare" },
-    h("figcaption", {}, h("span", { class: "vc-chart__title" }, "Four scores on the same scenario"),
-      h("span", { class: "vc-chart__subtitle" }, "Points lost on neufrankfurt_19agents; a shorter bar is better")),
+    h("figcaption", {}, h("span", { class: "vc-chart__title" }, `${inWords(rows.length)} scores on the same scenario`),
+      h("span", { class: "vc-chart__subtitle" }, `Points lost on ${map.file.replace(/\.json$/, "")}; a shorter bar is better`)),
     list);
 }
 
 /**
- * The score over the episode for the three runs. Returns { el, update(t, selected) }.
- * Drawn at the width it is shown (ResizeObserver), 11 px axis labels, horizontal grid only.
+ * The score over the episode for the map's runs. Returns { el, update(t, selected) }.
+ * Drawn at the width it is shown (ResizeObserver), 11 px axis labels, horizontal grid only: a line
+ * every 20,000 points, or every 50,000 or 100,000 where that would make more than seven.
  */
-export function scoreOverTime(runs) {
+export function scoreOverTime(runs, { map, runList }) {
   const height = 230;
   const pad = { l: 64, r: 16, t: 14, b: 30 };
+  const ref = map.leaderboard;
   const maxSteps = Math.max(...[...runs.values()].map((r) => r.steps));
-  const low = Math.min(LEADERBOARD, ...[...runs.values()].map((r) => Math.min(...r.frames.total.subarray(0, r.steps + 1))));
-  const bottom = -Math.ceil(-low / 20000) * 20000;
+  const low = Math.min(ref ?? 0, ...[...runs.values()].map((r) => Math.min(...r.frames.total.subarray(0, r.steps + 1))));
+  const gridStep = [20000, 50000, 100000, 200000].find((g) => Math.ceil(-low / g) <= 7) || 500000;
+  const bottom = -Math.max(1, Math.ceil(-low / gridStep)) * gridStep;
   const holder = h("div", { class: "vc-chart__plot score-plot" });
   const fig = h("figure", { class: "vc-chart score-chart" },
     h("figcaption", {}, h("span", { class: "vc-chart__title" }, "Score over the episode"),
       h("span", { class: "vc-chart__subtitle" }, "Points after each step; the line at the cursor is the step on screen")),
     holder,
-    h("ul", { class: "vc-legend" }, RUNS.map((r) => h("li", { dataset: { run: r.id } }, h("span", { class: "run-swatch", "aria-hidden": "true" }), r.label)),
-      h("li", {}, h("span", { class: "ref-dash", "aria-hidden": "true" }), "Current best on the leaderboard")));
+    h("ul", { class: "vc-legend" }, runList.map((r) => h("li", { dataset: { run: r.id } }, h("span", { class: "run-swatch", "aria-hidden": "true" }), r.label)),
+      ref !== null ? h("li", {}, h("span", { class: "ref-dash", "aria-hidden": "true" }), "Current best on the leaderboard") : null));
 
   let width = 0;
   let parts = null;
@@ -75,7 +81,7 @@ export function scoreOverTime(runs) {
     const x = (s) => pad.l + (s / maxSteps) * iw;
     const y = (v) => pad.t + (v / bottom) * ih;
     const grid = [];
-    for (let v = 0; v >= bottom; v -= 20000) {
+    for (let v = 0; v >= bottom; v -= gridStep) {
       grid.push(svg("line", { class: "chart-grid", x1: pad.l, x2: width - pad.r, y1: y(v), y2: y(v) }));
       grid.push(svg("text", { class: "chart-axis", x: pad.l - 8, y: y(v), "text-anchor": "end", "dominant-baseline": "central" }, score(v).replace(".0", "")));
     }
@@ -83,7 +89,7 @@ export function scoreOverTime(runs) {
     for (let s = 0; s <= maxSteps; s += 250) {
       xt.push(svg("text", { class: "chart-axis", x: x(s), y: height - 8, "text-anchor": "middle" }, count(s)));
     }
-    const lines = RUNS.map((r) => {
+    const lines = runList.map((r) => {
       const run = runs.get(r.id);
       const pts = [];
       const stride = Math.max(1, Math.floor(run.steps / iw));
@@ -91,12 +97,12 @@ export function scoreOverTime(runs) {
       pts.push(`${x(run.steps).toFixed(1)},${y(run.score).toFixed(1)}`);
       return svg("polyline", { class: "chart-line", points: pts.join(" "), dataset: { run: r.id } });
     });
-    const ref = svg("line", { class: "chart-ref", x1: pad.l, x2: width - pad.r, y1: y(LEADERBOARD), y2: y(LEADERBOARD) });
-    const refLabel = svg("text", { class: "chart-ref-label", x: width - pad.r - 4, y: y(LEADERBOARD) - 6, "text-anchor": "end" }, `Current best ${count(LEADERBOARD)}`);
+    const refLine = ref !== null ? svg("line", { class: "chart-ref", x1: pad.l, x2: width - pad.r, y1: y(ref), y2: y(ref) }) : null;
+    const refLabel = ref !== null ? svg("text", { class: "chart-ref-label", x: width - pad.r - 4, y: y(ref) - 6, "text-anchor": "end" }, `Current best ${count(ref)}`) : null;
     const cursor = svg("line", { class: "chart-cursor", y1: pad.t, y2: height - pad.b });
     const marker = svg("polygon", { class: "chart-marker", points: "" });
-    const s = svg("svg", { class: "score-svg", width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Score of the three runs over the episode" },
-      ...grid, ...xt, ref, refLabel, ...lines, cursor, marker);
+    const s = svg("svg", { class: "score-svg", width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `Score of the ${inWords(runList.length).toLowerCase()} runs over the episode` },
+      ...grid, ...xt, refLine, refLabel, ...lines, cursor, marker);
     holder.replaceChildren(s);
     parts = { x, y, cursor, marker, lines };
     update(state.t, state.selected);

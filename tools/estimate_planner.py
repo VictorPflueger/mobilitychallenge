@@ -19,7 +19,7 @@ On neufrankfurt_19agents every train arrives, none is ever held back, and the sc
 59 stops not served (59 x 499.2 = 29,452.8) and 3,036 steps late at the destinations, because trains
 wait up to 761 steps at their entry for a free route. tools/check_estimate.py checks all of this
 through the official runner; the page replays the actions this planner gives
-(data/estimate_actions.json).
+(data/frankfurt/estimate_actions.json).
 
 The planner only reads the environment; it changes nothing in it. The runner (run_episode) calls
 act() once per train that is not done, in handle order, so the handle follows from the call order.

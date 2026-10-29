@@ -4,9 +4,34 @@
 // and directions, never through its destination). A train is on the map at the earliest at step
 // max(earliest departure, 1) + 1 and moves at most one cell every 1 / speed steps; halting, detours
 // and other trains only add time, and a train that never arrives pays more than a late one.
-// A stop reached L steps late costs at least 0.5 × L (or the lost stop's 499.2, if that is less), a
-// destination L steps late costs L. tools/score_floor.py computes the same with flatland's own rail
-// (tests/fixtures/rules.json), and tests/guide.mjs holds the two together.
+// A stop reached L steps late costs at least 0.5 × L (or the lost stop's 499.2 on Neu-Frankfurt, 684
+// on Köln, if that is less), a destination L steps late costs L. tools/score_floor.py computes the
+// same with flatland's own rail (tests/fixtures/<map>/rules.json), and tests/guide.mjs holds the two
+// together.
+
+/**
+ * Why trains have a floor above zero, in two groups: { atTarget, slow }. atTarget: trains whose
+ * first cell is their destination (Köln's S-Bahn loops); Flatland finishes such a train the moment
+ * it enters, so none of its stops can be served. slow: the others with a floor, too slow for their
+ * own timetables even on empty track. Each group: { trains: [handles], points, stops }.
+ */
+export function floorReasons(scenario, floor) {
+  const atTarget = { trains: [], points: 0, stops: 0 };
+  const slow = { trains: [], points: 0 };
+  scenario.agents.forEach((a, i) => {
+    const least = floor.perTrain[i];
+    if (!(least > 0)) return;
+    if (a.initialPos === a.target) {
+      atTarget.trains.push(i);
+      atTarget.points += least;
+      atTarget.stops += a.waypoints.length - 2;
+    } else {
+      slow.trains.push(i);
+      slow.points += least;
+    }
+  });
+  return { atTarget, slow };
+}
 
 /** { perTrain: [least penalty per train], total }: no score can be better than −total. */
 export function scoreFloor(scenario, penalty) {

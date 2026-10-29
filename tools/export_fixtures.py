@@ -1,27 +1,31 @@
 """Reference traces from the official Python environment, for the browser engine's parity test.
 
-Runs each of the three controllers through the challenge's own runner (run_episode in
-src/tbrain-simulation.py, rendering off) on data/maps/neufrankfurt_19agents.json and records, for
-every step, the actions handed to env.step and the full state of every train afterwards: position,
-direction, state, speed, distance travelled in the cell, the step's reward and the done flag. It
-also records the distance map's digest, and every term of every reward (Decomposer below: a crash,
-a delay at the target, a stop not served, ...), so tests/engine.mjs can compare the browser engine,
-and the score breakdown the page shows, with flatland number for number.
+Runs each map's controllers (tools/maps.py) through the challenge's own runner (run_episode in
+src/tbrain-simulation.py, rendering off) on the challenge's map file (data/maps/<file>) and records,
+for every step, the actions handed to env.step and the full state of every train afterwards:
+position, direction, state, speed, distance travelled in the cell, the step's reward and the done
+flag. It also records the distance map's digest, and every term of every reward (Decomposer below:
+a crash, a delay at the target, a stop not served, ...), so tests/engine.mjs can compare the browser
+engine, and the score breakdown the page shows, with flatland number for number.
 
   baseline   OrderedController, the challenge's default (tree observation, depth 2)
   estimate   tools/estimate_planner.py, the estimate of the current best (routes booked, stops
-             skipped), run live; its actions must equal data/estimate_actions.json, which the page
-             replays (tools/check_estimate.py writes that file and checks the run)
-  optimized  the actions in data/planner_actions.json (PlannerController's plan, see check_plan.py),
-             replayed by a controller that never sees the environment
+             skipped), run live; its actions must equal data/frankfurt/estimate_actions.json, which
+             the page replays (tools/check_estimate.py writes that file and checks the run).
+             Neu-Frankfurt only
+  optimized  the actions in data/<map>/planner_actions.json (PlannerController's plan, see
+             check_plan.py), replayed by a controller that never sees the environment
 
-It also writes tests/fixtures/rules.json: the penalties as the challenge's own code scales them, and
-the floor no dispatcher can beat (tools/score_floor.py), after checking the timing that floor assumes
-in all three runs.
+Per map it writes tests/fixtures/<map>/trace_<run>.json, data/<map>/reference.json (the runner's
+scores, which the page checks its own against) and tests/fixtures/<map>/rules.json: the penalties as
+the challenge's own code scales them for that map, and the floor no dispatcher can beat
+(tools/score_floor.py), after checking the timing that floor assumes in every recorded run. It also
+writes tests/fixtures/python_semantics.json, for both maps.
 
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
-  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>           write tests/fixtures/
-  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check   rebuild and compare
+  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>                write every map's fixtures
+  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check        rebuild and compare
+  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --map koeln    one map only
 The env.step and reward wrappers below are test harness only: they record, they change nothing.
 """
 import argparse
@@ -36,9 +40,8 @@ import warnings
 
 warnings.filterwarnings('ignore')
 HERE = os.path.dirname(os.path.abspath(__file__))
-SITE = os.path.dirname(HERE)
-MAP = 'data/maps/neufrankfurt_19agents.json'
-SCENARIOS = ('baseline', 'estimate', 'optimized')
+sys.path.insert(0, HERE)
+from maps import MAPS, SITE, challenge_map, chosen, fixtures, site_data  # noqa: E402
 
 
 def load_runner(repo):
@@ -196,9 +199,10 @@ def distance_map_digest(env):
             'per_agent': [hashlib.sha256(dm[i].tobytes()).hexdigest() for i in range(dm.shape[0])]}
 
 
-def run(tbsim, scenario):
+def run(tbsim, map_id, scenario):
     import scenario_loader
     from flatland.envs.observations import TreeObsForRailEnv
+    MAP = challenge_map(map_id)
     env = scenario_loader.load(MAP, use_malfunctions=False, obs_builder_object=TreeObsForRailEnv(max_depth=2))
     rec = Recorder(env)
     terms = Decomposer(env)
@@ -208,9 +212,9 @@ def run(tbsim, scenario):
     elif scenario == 'estimate':
         from estimate_planner import EstimatePlanner
         ctrl = EstimatePlanner(env)
-        estimate_plan = json.load(open(os.path.join(SITE, 'data', 'estimate_actions.json')))
+        estimate_plan = json.load(open(site_data(map_id, 'estimate_actions.json')))
     else:
-        plan = json.load(open(os.path.join(SITE, 'data', 'planner_actions.json')))
+        plan = json.load(open(site_data(map_id, 'planner_actions.json')))
         ctrl = Replay(plan['actions'])
         ctrl.bind(rec)
     # run_episode resets the env first; the snapshot of the reset state is taken by a reset wrapper.
@@ -237,8 +241,9 @@ def run(tbsim, scenario):
             assert abs(by_step.get((t, handle), 0) - rew) < 1e-6, ('terms', t, handle, by_step.get((t, handle)), rew)
     if scenario == 'optimized':
         assert rec.actions == plan['actions'][:len(rec.actions)] and len(rec.actions) == len(plan['actions']), 'replay diverged'
+        assert plan['map_sha256'] == hashlib.sha256(open(MAP, 'rb').read()).hexdigest(), 'the plan was made on another map'
     if scenario == 'estimate':
-        assert rec.actions == estimate_plan['actions'], 'data/estimate_actions.json is not what EstimatePlanner does'
+        assert rec.actions == estimate_plan['actions'], 'data/frankfurt/estimate_actions.json is not what EstimatePlanner does'
     return {
         'scenario': scenario,
         'map': os.path.basename(MAP),
@@ -257,7 +262,9 @@ def run(tbsim, scenario):
 
 def python_semantics(seed=7):
     """Python 3.13's sum() of mixed ints and floats, and the iteration order of small int sets, on
-    random inputs shaped like the engine's (rewards, train handles), for js/engine/py.js."""
+    random inputs shaped like the engine's (rewards, train handles), for js/engine/py.js. The pool
+    holds both maps' penalty values (Neu-Frankfurt's 1,248 steps, Köln's 1,710); the first 4,000 sums
+    and 3,000 sets are the ones the page was first checked on, the rest reach Köln's 36 trains."""
     import random
     rng = random.Random(seed)
     sums = []
@@ -283,56 +290,85 @@ def python_semantics(seed=7):
         for k in keys:
             s.add(k)
         sets.append({'insert': keys, 'order': list(s)})
+    # Köln: 1,710 steps (a crash 1,282.5 x the speed at impact, a lost stop 684, a cancellation
+    # 4 x (trip + 513)), and 36 trains, so handles up to 35 and sets past the first resize.
+    koeln_pool = [0, 0, -1282.5, -641.25, -384.75, -769.5, -1154.25, -684.0, -0.5, -1.75, -3.5,
+                  -4.0 * (97 + 513.0), 0.0, -31, 5, -2052.0]
+    for _ in range(2000):
+        items = []
+        for _ in range(rng.randint(0, 45)):
+            r = rng.random()
+            if r < 0.5:
+                items.append(rng.choice(koeln_pool))
+            elif r < 0.7:
+                items.append(rng.randint(-4000, 50))
+            elif r < 0.9:
+                items.append(rng.choice([-0.5, -1.75, 0.5]) * rng.randint(-900, 900))
+            else:
+                items.append(rng.uniform(-9000, 9000))
+        sums.append({'items': [[float(x), isinstance(x, float)] for x in items], 'sum': float(sum(items)),
+                     'sum_is_float': isinstance(sum(items), float)})
+    for _ in range(2000):
+        keys = [rng.randint(0, 35) for _ in range(rng.randint(1, 48))]
+        s = set()
+        for k in keys:
+            s.add(k)
+        sets.append({'insert': keys, 'order': list(s)})
     rounds = [{'x': x, 'round': round(x)} for x in [1 / 0.8, 1 / 0.6, 1.0, 2.5, 3.5, 0.5, 1.5, 1 / 0.3, 1 / 0.7, 1 / 0.4]]
     return {'python': sys.version.split()[0], 'sums': sums, 'sets': sets, 'rounds': rounds}
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--repo', required=True, help='checkout of the challenge repository (with its .venv)')
-    ap.add_argument('--check', action='store_true', help='rebuild and compare with tests/fixtures/ instead of writing')
-    ap.add_argument('--only', choices=SCENARIOS)
-    args = ap.parse_args()
-    repo = os.path.abspath(args.repo)
-    out_dir = os.path.join(SITE, 'tests', 'fixtures')
-    tbsim = load_runner(repo)
+def same_json(path, text):
+    """The file at path holds the same JSON as text."""
+    return os.path.exists(path) and json.load(open(path)) == json.loads(text)
+
+
+def export_map(tbsim, map_id, args):
+    """One map's traces, reference scores and rules; returns whether --check found them identical."""
+    MAP = challenge_map(map_id)
+    scenarios = MAPS[map_id]['runs']
+    if args.only and args.only not in scenarios:
+        print(f'{map_id}: no {args.only} run on this map')
+        return True
     ok = True
     results = {}
-    for scenario in ([args.only] if args.only else SCENARIOS):
-        data = run(tbsim, scenario)
+    for scenario in ([args.only] if args.only else scenarios):
+        data = run(tbsim, map_id, scenario)
         results[scenario] = data
-        path = os.path.join(out_dir, f'trace_{scenario}.json')
+        path = fixtures(map_id, f'trace_{scenario}.json')
+        rel = os.path.relpath(path, SITE)
         text = json.dumps(data, separators=(',', ':'))
+        line = (f'{map_id:9s} {scenario:9s} reward {data["reward"]:>11.2f}  steps {data["steps"]:4d}  '
+                f'done {data["done_agents"]:2d}/{len(data["initial"]["pos"])}  ')
         if args.check:
-            same = os.path.exists(path) and json.load(open(path)) == json.loads(text)
+            same = same_json(path, text)
             ok &= same
-            print(f'{scenario:9s} reward {data["reward"]:>10.2f}  steps {data["steps"]:4d}  done {data["done_agents"]:2d}/19  '
-                  f'{"identical to" if same else "DIFFERS from"} tests/fixtures/trace_{scenario}.json')
+            print(line + f'{"identical to" if same else "DIFFERS from"} {rel}')
         else:
-            os.makedirs(out_dir, exist_ok=True)
+            os.makedirs(fixtures(map_id), exist_ok=True)
             open(path, 'w').write(text)
-            print(f'{scenario:9s} reward {data["reward"]:>10.2f}  steps {data["steps"]:4d}  done {data["done_agents"]:2d}/19  '
-                  f'wrote {os.path.relpath(path, SITE)} ({len(text) // 1024} KiB)')
+            print(line + f'wrote {rel} ({len(text) // 1024} KiB)')
     if not args.only:
-        # data/reference.json: the Python runner's scores, which the page compares its own with.
+        # data/<map>/reference.json: the Python runner's scores, which the page compares its own with.
         ref = {'map': os.path.basename(MAP), 'map_sha256': results['baseline']['map_sha256'],
                'python': sys.version.split()[0], 'flatland': results['baseline']['flatland'],
                'runs': {k: {'reward': v['reward'], 'steps': v['steps']} for k, v in results.items()}}
-        ref_path = os.path.join(SITE, 'data', 'reference.json')
+        ref_path = site_data(map_id, 'reference.json')
+        rel = os.path.relpath(ref_path, SITE)
         if args.check:
-            same = os.path.exists(ref_path) and json.load(open(ref_path)) == json.loads(json.dumps(ref))
+            same = same_json(ref_path, json.dumps(ref))
             ok &= same
-            print(f'scores: {", ".join(k + " " + str(v["reward"]) for k, v in ref["runs"].items())} '
-                  f'{"identical to" if same else "DIFFER from"} data/reference.json')
+            print(f'{map_id:9s} scores: {", ".join(k + " " + str(v["reward"]) for k, v in ref["runs"].items())} '
+                  f'{"identical to" if same else "DIFFER from"} {rel}')
         else:
             open(ref_path, 'w').write(json.dumps(ref, indent=1))
-            print('wrote data/reference.json')
-    # tests/fixtures/rules.json: the penalties as the challenge's own code sets them for this map
-    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), the speed
-    # changes per step the loader sets (acceleration_delta, braking_delta), and the
-    # floor no dispatcher can beat (tools/score_floor.py, on flatland's own rail), which
-    # tests/guide.mjs compares with the figures the guide states. The floor's timing assumptions
-    # must hold in every recorded run.
+            print(f'{map_id:9s} wrote {rel}')
+    # tests/fixtures/<map>/rules.json: the penalties as the challenge's own code sets them for this
+    # map (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), the speed
+    # changes per step the loader sets (acceleration_delta, braking_delta), and the floor no
+    # dispatcher can beat (tools/score_floor.py, on flatland's own rail), which tests/guide.mjs
+    # compares with the figures the guide states. The floor's timing assumptions must hold in every
+    # recorded run.
     from scaled_penalties import get_scaled_penalties
     import scenario_loader
     from score_floor import score_floor, timing_holds
@@ -343,8 +379,8 @@ def main():
     floor = score_floor(env, balanced)
     for scenario, data in results.items():
         problems = timing_holds(env, [data['initial']] + data['trace'])
-        assert not problems, (scenario, problems[:5])
-    print(f'floor: no dispatcher can score better than -{sum(floor)} '
+        assert not problems, (map_id, scenario, problems[:5])
+    print(f'{map_id:9s} floor: no dispatcher can score better than -{sum(floor)} '
           f'(the timing it assumes holds in the {", ".join(results)} run{"s" if len(results) > 1 else ""})')
     rules = {'map': os.path.basename(MAP), 'max_episode_steps': max_steps,
              'balanced': balanced,
@@ -352,25 +388,42 @@ def main():
              'acceleration_delta': env.acceleration_delta,
              'braking_delta': env.braking_delta,
              'floor': {'per_train': floor, 'total': sum(floor)}}
-    rules_path = os.path.join(out_dir, 'rules.json')
+    rules_path = fixtures(map_id, 'rules.json')
+    rel = os.path.relpath(rules_path, SITE)
     if args.check:
-        same = os.path.exists(rules_path) and json.load(open(rules_path)) == json.loads(json.dumps(rules))
+        same = same_json(rules_path, json.dumps(rules))
         ok &= same
-        print(f'penalties for {max_steps} steps {"identical to" if same else "DIFFER from"} tests/fixtures/rules.json')
+        print(f'{map_id:9s} penalties for {max_steps} steps {"identical to" if same else "DIFFER from"} {rel}')
     elif not args.only:
         open(rules_path, 'w').write(json.dumps(rules, indent=1))
-        print('wrote tests/fixtures/rules.json')
+        print(f'{map_id:9s} wrote {rel}')
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--repo', required=True, help='checkout of the challenge repository (with its .venv)')
+    ap.add_argument('--check', action='store_true', help='rebuild and compare with tests/fixtures/ instead of writing')
+    ap.add_argument('--map', choices=list(MAPS), help='one map only (default: every map)')
+    ap.add_argument('--only', choices=('baseline', 'estimate', 'optimized'), help='one run only')
+    args = ap.parse_args()
+    repo = os.path.abspath(args.repo)
+    tbsim = load_runner(repo)
+    maps = chosen(args.map)
+    ok = True
+    for map_id in maps:
+        ok &= export_map(tbsim, map_id, args)
     sem = python_semantics()
-    path = os.path.join(out_dir, 'python_semantics.json')
+    path = os.path.join(SITE, 'tests', 'fixtures', 'python_semantics.json')
     if args.check:
-        same = os.path.exists(path) and json.load(open(path)) == json.loads(json.dumps(sem))
+        same = same_json(path, json.dumps(sem))
         ok &= same
         print(f'python semantics ({len(sem["sums"])} sums, {len(sem["sets"])} sets) {"identical to" if same else "DIFFER from"} tests/fixtures/python_semantics.json')
     elif not args.only:
         open(path, 'w').write(json.dumps(sem, separators=(',', ':')))
         print(f'python semantics: wrote {os.path.relpath(path, SITE)}')
     if args.check:
-        print('FIXTURES_REPRODUCED' if ok else 'FIXTURES_DIFFER')
+        print(f'FIXTURES_REPRODUCED maps={",".join(maps)}' if ok else 'FIXTURES_DIFFER')
         sys.exit(0 if ok else 1)
 
 

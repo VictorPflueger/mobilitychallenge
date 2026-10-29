@@ -1,30 +1,19 @@
 // What the scenario file says beyond the engine's needs: station and train names, train classes,
-// routes, and the drawing of the rail network. Everything comes from data/neufrankfurt_19agents.json
-// (the challenge's map): its stations, lines, schedules and train classes.
+// routes, and the drawing of the rail network. Everything comes from the map's file (the challenge's
+// data/maps/<file>): its stations, lines, schedules and train classes; the station names from the
+// map's entry in js/maps.js.
 
 /**
- * Station names. The file names stations by number only; these names come from its line names
- * ("Offenbach-Hbf-Flughafen", "Langen", "Taunus", "Höchst", "Maintal" and the stations at the ends
- * of those lines). Flughafen appears twice: the ICE lines end at station 3, the RB and S-Bahn lines
- * at station 2. Stations no line name mentions keep their number.
+ * The network's descriptive layer: stations with their cells and names, trains with names, kinds and
+ * routes, and stationName(id) for any station. map: the map's entry in js/maps.js. The file names
+ * stations by number only; names come from the map's line names (js/maps.js says which), and
+ * stations no line name mentions keep their number ("Stop 17").
  */
-const NAMED = {
-  1: "Hauptbahnhof",
-  2: "Flughafen (RB, S)",
-  3: "Flughafen (ICE)",
-  7: "Langen",
-  8: "Offenbach",
-  9: "Maintal",
-  10: "Taunus",
-  11: "Höchst"
-};
-const SHORT = { 1: "Hbf", 2: "Flughafen (RB, S)", 3: "Flughafen (ICE)", 7: "Langen", 8: "Offenbach", 9: "Maintal", 10: "Taunus", 11: "Höchst" };
-
-export const stationName = (id) => NAMED[id] || `Stop ${id}`;
-export const stationShort = (id) => SHORT[id] || `Stop ${id}`;
-
-/** The network's descriptive layer: stations with their cells, trains with names and routes. */
-export function describe(data) {
+export function describe(data, map) {
+  const names = map?.stations?.names || {};
+  const shorts = map?.stations?.short || {};
+  const stationName = (id) => names[id] || `Stop ${id}`;
+  const stationShort = (id) => shorts[id] || names[id] || `Stop ${id}`;
   const cols = data.gridDimensions.cols;
   const stations = new Map();
   for (const s of data.stations) {
@@ -46,7 +35,7 @@ export function describe(data) {
       to: stationName(stops[stops.length - 1])
     };
   });
-  return { stations: [...stations.values()], trains };
+  return { stations: [...stations.values()], trains, stationName, lines: data.lines.map((l) => ({ id: l.id, name: l.name, stationIds: l.stationIds })) };
 }
 
 const MOVES = [[-1, 0], [0, 1], [1, 0], [0, -1]];

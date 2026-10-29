@@ -1,0 +1,16 @@
+{
+ "map": "kk_36agents.json",
+ "map_sha256": "b308ff99992a155926eb8ebef5ba06e797fc1633587bd70cc84b36d8cfce02bb",
+ "python": "3.13.18",
+ "flatland": "4.2.2",
+ "runs": {
+  "baseline": {
+   "reward": -270672.75,
+   "steps": 1710
+  },
+  "optimized": {
+   "reward": -66212.5,
+   "steps": 1710
+  }
+ }
+}

@@ -5,18 +5,23 @@
 // each step and changes nothing).
 
 import { RailEnv, STATE, isOffMap, runEpisode } from "./engine/env.js";
+import { amount } from "./format.js";
 import { trainPaths } from "./glide.js";
 
-/** Reward components, in the order the score breakdown lists them. */
+/**
+ * Reward components, in the order the score breakdown lists them. hint(P) says what each costs, with
+ * the penalties as the challenge scales them to the map's episode (balancedPenalties in
+ * js/engine/env.js: Neu-Frankfurt's 1,248 steps make a lost stop 499.2, Köln's 1,710 make it 684).
+ */
 export const KINDS = [
-  { id: "collision", label: "Collisions", hint: "A moving train ran into an occupied cell and was stopped: 936 × its speed", tone: "danger" },
-  { id: "stop_missed", label: "Stops never reached", hint: "499.2 per stop the train never came to", tone: "danger" },
-  { id: "stop_passed", label: "Stops passed without stopping", hint: "499.2 per stop the train ran through", tone: "danger" },
-  { id: "not_arrived", label: "Not arrived by the end", hint: "The delay still ahead of a train on the map when time runs out", tone: "danger" },
-  { id: "cancelled", label: "Never departed", hint: "4 × (the trip's travel time + 374.4) for a train that never entered", tone: "danger" },
-  { id: "stop_late", label: "Late at stops", hint: "0.5 per step after a stop's latest arrival", tone: "warning" },
-  { id: "stop_early", label: "Early departures", hint: "1.75 per step before a stop's earliest departure", tone: "warning" },
-  { id: "target_late", label: "Late at the destination", hint: "1 per step after the latest arrival", tone: "warning" }
+  { id: "collision", label: "Collisions", hint: (P) => `A moving train ran into an occupied cell and was stopped: ${amount(P.crash)} × its speed`, tone: "danger" },
+  { id: "stop_missed", label: "Stops never reached", hint: (P) => `${amount(P.notServed)} per stop the train never came to`, tone: "danger" },
+  { id: "stop_passed", label: "Stops passed without stopping", hint: (P) => `${amount(P.notServed)} per stop the train ran through`, tone: "danger" },
+  { id: "not_arrived", label: "Not arrived by the end", hint: () => "The delay still ahead of a train on the map when time runs out", tone: "danger" },
+  { id: "cancelled", label: "Never departed", hint: (P) => `${amount(P.cancellationFactor)} × (the trip's travel time + ${amount(P.cancellationBuffer)}) for a train that never entered`, tone: "danger" },
+  { id: "stop_late", label: "Late at stops", hint: (P) => `${amount(P.lateArrival)} per step after a stop's latest arrival`, tone: "warning" },
+  { id: "stop_early", label: "Early departures", hint: (P) => `${amount(P.earlyDeparture)} per step before a stop's earliest departure`, tone: "warning" },
+  { id: "target_late", label: "Late at the destination", hint: () => "1 per step after the latest arrival", tone: "warning" }
 ];
 
 /** The platforms of waypoint k of a train: the set of (cell, direction) keys it counts at. */
@@ -52,7 +57,11 @@ export function simulate(scenario, controller) {
     doneAt: null
   }));
   const events = [];
-  const at = new Array(n).fill(-1); // the stop whose platform each train stands on, -1 if none
+  // The stops whose platform each train stands on (empty if none): the stop it calls at, then any
+  // other stop that platform counts for (see below). called: the stops a train has called at, for its
+  // progress along the timetable.
+  const at = agents.map(() => []);
+  const called = agents.map((a) => a.waypoints.map(() => false));
   const t0 = performance.now();
 
   runEpisode(env, controller, (e, actions, rewards, total) => {
@@ -74,45 +83,59 @@ export function simulate(scenario, controller) {
       if (prevPos === -1 && a.pos !== -1) {
         tt.entered = t;
         events.push({ step: t, train: i, kind: "enter", late: Math.max(0, t - a.earliestDeparture) });
+      } else if (tt.entered === null && tt.doneAt === null && a.state === STATE.DONE) {
+        // A train whose first cell is its destination (Köln's S-Bahn loops) enters and is done in the
+        // same step: the simulator finishes it at once and removes it, so it never shows on the map.
+        tt.entered = t;
+        events.push({ step: t, train: i, kind: "enter", late: Math.max(0, t - a.earliestDeparture), atTarget: true });
       }
       // leaving a platform
-      if (at[i] >= 0 && a.pos !== prevPos) {
-        const k = at[i];
-        tt.departed[k] = t;
+      if (at[i].length && a.pos !== prevPos) {
+        const [k] = at[i];
+        for (const s of at[i]) tt.departed[s] = t;
         events.push({ step: t, train: i, kind: tt.stopped[k] === null ? "pass" : "leave", stop: k, early: Math.max(0, a.wpEd[k] - t) });
-        at[i] = -1;
+        at[i] = [];
       }
-      // on a platform of one of its stops
-      if (a.pos !== -1 && at[i] < 0) {
+      // On a platform of one of its stops: the stop it calls at is the first whose platforms include
+      // this one. A station called at twice may list some platforms for both calls (Köln's RB süd and
+      // RB nord at Stop 2); the reward function then counts such a platform for both, and so does the
+      // timetable, while the events and the train's progress follow the stop it calls at.
+      if (a.pos !== -1 && !at[i].length) {
         const key = a.pos * 4 + a.dir;
-        const k = platforms[i].findIndex((p) => p.has(key));
-        if (k > 0) {
-          at[i] = k;
-          if (tt.arrived[k] === null) {
+        const ks = [];
+        platforms[i].forEach((p, k) => { if (k > 0 && p.has(key)) ks.push(k); });
+        if (ks.length) {
+          at[i] = ks;
+          called[i][ks[0]] = true;
+          ks.forEach((k, j) => {
+            if (tt.arrived[k] !== null) return;
             tt.arrived[k] = t;
-            events.push({ step: t, train: i, kind: "reach", stop: k, late: Math.max(0, t - a.wpLa[k]) });
-          }
+            if (j === 0) events.push({ step: t, train: i, kind: "reach", stop: k, late: Math.max(0, t - a.wpLa[k]) });
+          });
         }
       }
-      if (at[i] >= 0 && a.state === STATE.STOPPED && tt.stopped[at[i]] === null) {
-        tt.stopped[at[i]] = t;
-        events.push({ step: t, train: i, kind: "stop", stop: at[i], late: Math.max(0, tt.arrived[at[i]] - a.wpLa[at[i]]) });
+      if (at[i].length && a.state === STATE.STOPPED) {
+        at[i].forEach((k, j) => {
+          if (tt.stopped[k] !== null) return;
+          tt.stopped[k] = t;
+          if (j === 0) events.push({ step: t, train: i, kind: "stop", stop: k, late: Math.max(0, tt.arrived[k] - a.wpLa[k]) });
+        });
       }
       if (a.state === STATE.DONE && tt.doneAt === null) {
         tt.doneAt = t;
-        at[i] = -1;
+        at[i] = [];
         events.push({ step: t, train: i, kind: "arrive", late: Math.max(0, t - a.latestArrival) });
       }
 
       // How far behind the timetable the train is now.
       let late = 0;
       if (a.state !== STATE.DONE && !(isOffMap(a.state) && t < a.earliestDeparture)) {
-        if (at[i] >= 0) {
-          late = Math.max(0, tt.arrived[at[i]] - a.wpLa[at[i]]);
+        if (at[i].length) {
+          late = Math.max(0, tt.arrived[at[i][0]] - a.wpLa[at[i][0]]);
         } else {
-          // the next timetable point after the last stop it reached (a stop it skipped is gone)
+          // the next timetable point after the last stop it called at (a stop it skipped is gone)
           let k = 1;
-          for (let j = a.waypoints.length - 2; j >= 1; j -= 1) if (tt.arrived[j] !== null) { k = j + 1; break; }
+          for (let j = a.waypoints.length - 2; j >= 1; j -= 1) if (called[i][j]) { k = j + 1; break; }
           late = Math.max(0, t - (k < a.waypoints.length - 1 ? a.wpLa[k] : a.latestArrival));
         }
       } else if (a.state === STATE.DONE) {
@@ -191,7 +214,7 @@ export function trainStatus(run, scenario, i, t) {
   if (f.blocked[o]) return { word: "Blocked by a train ahead", tone: "blocked", short: "blocked" };
   const standing = state === STATE.STOPPED;
   let platform = null;
-  for (let k = 1; k < a.waypoints.length - 1; k += 1) {
+  for (let k = 1; k < a.waypoints.length - 1 && platform === null; k += 1) {
     if (tt.arrived[k] !== null && tt.arrived[k] <= t && (tt.departed[k] === null || tt.departed[k] > t)) platform = k;
   }
   // Standing still long after it should have left: stuck (a dwell before the departure time is not).

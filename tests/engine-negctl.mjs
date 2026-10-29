@@ -2,7 +2,8 @@
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
 // function, either plan, the distance map or the score breakdown) and the parity check must report
 // a difference. The unchanged engine must pass first, so a failure is the check's doing, not a
-// broken harness.
+// broken harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops,
+// which start on their destination's cell and must be finished as they enter.
 // Usage: node tests/engine-negctl.mjs
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -11,6 +12,7 @@ import { distanceMapParity, parity, termsParity } from "./engine.mjs";
 import { RailEnv } from "../js/engine/env.js";
 import { MotionCheck } from "../js/engine/motion.js";
 import { Rail } from "../js/engine/rail.js";
+import { fixturePath, mapPath } from "./lib/maps.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const readJson = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
@@ -29,7 +31,7 @@ function expectDifference(what, run) {
   results.push([!r.ok, `${what}: ${r.ok ? "NOT detected" : `detected (${r.message || `distance map of trains ${r.bad.join(", ")}`})`}`]);
 }
 
-// Positive control: the unchanged engine passes all three runs and the distance map.
+// Positive control: the unchanged engine passes Neu-Frankfurt's three runs and its distance map.
 for (const name of ["baseline", "estimate", "optimized"]) {
   const r = parity(name);
   results.push([r.ok, `unchanged engine, ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
@@ -40,17 +42,26 @@ for (const name of ["baseline", "estimate", "optimized"]) {
   const r = termsParity(name);
   results.push([r.ok, `unchanged page, the score breakdown of ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
 }
+// and on Köln
+for (const name of ["baseline", "optimized"]) {
+  const r = parity(name, { map: "koeln" });
+  results.push([r.ok, `unchanged engine, Köln ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
+  const t = termsParity(name, { map: "koeln" });
+  results.push([t.ok, `unchanged page, the score breakdown of Köln ${name}: ${t.ok ? "passes" : `FAILS (${t.message})`}`]);
+}
+const dmK = distanceMapParity({ map: "koeln" });
+results.push([dmK.ok, `unchanged engine, Köln distance map: ${dmK.ok ? "passes" : "FAILS"}`]);
 
-// Train dynamics: braking and acceleration, each checked across the three runs (the baseline never
-// brakes, so a run that does must catch it).
+// Train dynamics: braking and acceleration, each checked across Neu-Frankfurt's three runs (the
+// baseline never brakes, so a run that does must catch it).
 const anyRun = (options) => ["baseline", "estimate", "optimized"].map((n) => parity(n, options)).find((r) => !r.ok) || { ok: true };
 expectDifference("braking 0.4 per step instead of 0.5", () => anyRun({ env: { brakingDelta: -0.4 } }));
 expectDifference("acceleration 0.25 per step instead of 0.3", () => anyRun({ env: { accelerationDelta: 0.25 } }));
 
 // The map: a switch loses the transition a train of the optimized run takes through it.
 expectDifference("one used transition removed from a switch", () => {
-  const data = readJson("data/neufrankfurt_19agents.json");
-  const trace = readJson("tests/fixtures/trace_optimized.json").trace;
+  const data = readJson(mapPath("frankfurt"));
+  const trace = readJson(fixturePath("frankfurt", "trace_optimized.json")).trace;
   const rail = new Rail(data.grid);
   const bits = (x) => x.toString(2).replace(/0/g, "").length;
   for (let s = 0; s + 1 < trace.length; s += 1) {
@@ -117,6 +128,25 @@ expectDifference("one distance-map value off by one", () => distanceMapParity({
   }
 }));
 
+// Köln: its plan, its penalties scaled to 1,710 steps, and the S-Bahn loops done as they enter.
+expectDifference("Köln: one action of the plan changed", () => parity("optimized", {
+  map: "koeln",
+  mutatePlan: (plan) => {
+    const step = plan.actions.findIndex((a) => a.includes(2));
+    plan.actions[step][plan.actions[step].indexOf(2)] = 0;
+  }
+}));
+expectDifference("Köln: crash penalty 1,282 instead of 1,282.5", () => parity("baseline", { map: "koeln", mutateEnv: (env) => { env.penalty.crash = 1282; } }));
+expectDifference("Köln: a missed stop 683 instead of 684", () => parity("baseline", { map: "koeln", mutateEnv: (env) => { env.penalty.notServed = 683; } }));
+expectDifference("Köln: the S-Bahn loops' destination one cell off their first cell", () => parity("baseline", {
+  map: "koeln",
+  mutateScenario: (sc) => {
+    let moved = 0;
+    for (const a of sc.agents) if (a.initialPos === a.target) { a.target += sc.rail.width; moved += 1; }
+    if (!moved) throw new Error("no train starts on its destination");
+  }
+}));
+
 // The score breakdown: the total stays right, but a term is booked under the wrong heading or stop.
 const relabel = (change) => {
   const note = RailEnv.prototype.note;
@@ -135,4 +165,4 @@ if (failed) {
   console.log(`\n${failed} negative-control check(s) failed.`);
   process.exit(1);
 }
-console.log("\nEvery planted change was caught, and the unchanged engine passes.\nNEGATIVE_CONTROL_OK");
+console.log("\nEvery planted change was caught, and the unchanged engine passes.\nNEGATIVE_CONTROL_OK maps=frankfurt,koeln");

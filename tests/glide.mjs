@@ -1,12 +1,13 @@
-// How the map moves trains between steps (js/glide.js), for all three runs as the page simulates
-// them, against the Python runner's own record of each run (tests/fixtures/trace_*.json: every
-// train's cell, state, speed and distance in the cell after every step). The point where the map
-// draws a train is sampled eight times per step.
+// How the map moves trains between steps (js/glide.js), for every run of both maps as the page
+// simulates them, against the Python runner's own record of each run (tests/fixtures/<map>/
+// trace_*.json: every train's cell, state, speed and distance in the cell after every step). The
+// point where the map draws a train is sampled eight times per step.
 //   moving    a train Python has moving is drawn moving in that step, unless it is inching forward
 //             inside one cell between two halts (it never leaves that cell): such steps are counted
 //   standing  a train Python has standing is drawn still, at the centre of its cell
-//   speed     in the estimate run, where no train ever halts, each train is drawn moving exactly as
-//             far in every step as Python moves it (the S-Bahns half a cell, the others a whole one);
+//   speed     in Neu-Frankfurt's estimate run, where no train ever halts, each train is drawn moving
+//             exactly as far in every step as Python moves it (the S-Bahns half a cell, the others a
+//             whole one);
 //             in every run a train running at full speed is drawn a cell per step, through the
 //             centre of each cell at each step
 //   way       a train is drawn less than a cell from the centre of the cell Python has it in, never
@@ -15,7 +16,9 @@
 //   control   the old drawing (from cell centre to cell centre, only in a step in which the train
 //             changed cells) fails the moving check in every run, and a drawing at the distance
 //             Python's speed counter has covered in the cell fails the standing check
-// Usage: node tests/glide.mjs
+// Köln's six S-Bahn loops start on their destination and are done the moment they enter: they are
+// never on the map, in Python's record or in the drawing.
+// Usage: node tests/glide.mjs [--map frankfurt|koeln]
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
 import { trainPoint } from "../js/glide.js";
@@ -23,30 +26,18 @@ import { describe } from "../js/network.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson } from "./lib/trace-facts.mjs";
+import { MAPS, fixturePath, mapPath, parseCases, planPath } from "./lib/maps.mjs";
 
 const MOVING = 3;
 const DONE = 6;
 const SAMPLES = 8;
 const EPS = 1e-9;
 
-const data = readJson("data/neufrankfurt_19agents.json");
-const scenario = loadScenario(data);
-const rail = scenario.rail;
-const network = describe(data);
-const sbahns = network.trains.filter((t) => t.kind === "S-Bahn").map((t) => t.handle);
-const controllers = {
-  baseline: () => new OrderedController(),
-  estimate: () => new ReplayController(readJson("data/estimate_actions.json"), "estimate"),
-  optimized: () => new ReplayController(readJson("data/planner_actions.json"), "optimized")
-};
-
+const { maps } = parseCases(process.argv.slice(2), []);
 const results = [];
 const check = (ok, what) => results.push([ok, what]);
 const centre = (p) => [p[1] + 0.5, p[0] + 0.5]; // Python's [row, column] to the map's (x, y)
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-const cellOf = (p) => rail.index(p[0], p[1]);
-
-check(sbahns.length === 3 && sbahns.every((i) => scenario.agents[i].maxSpeed === 0.5), `the scenario's S-Bahns (trains ${sbahns.join(", ")}) run at half a cell per step`);
 
 /** The drawn path of train i in step t → t + 1: its points at t, t + 1/8, …, t + 1, and its length. */
 function stepPath(point, i, t) {
@@ -118,9 +109,35 @@ function standingCheck(point, rows, T, n) {
   return { standing, moved, off };
 }
 
-for (const id of Object.keys(controllers)) {
-  const run = simulate(scenario, controllers[id]());
-  const fx = readJson(`tests/fixtures/trace_${id}.json`);
+for (const mapId of maps) checkMap(mapId);
+
+function checkMap(mapId) {
+  const data = readJson(mapPath(mapId));
+  const scenario = loadScenario(data);
+  const rail = scenario.rail;
+  const network = describe(data);
+  const cellOf = (p) => rail.index(p[0], p[1]);
+  const controllers = {
+    baseline: () => new OrderedController(),
+    estimate: () => new ReplayController(readJson(planPath(mapId, "estimate")), "estimate"),
+    optimized: () => new ReplayController(readJson(planPath(mapId, "optimized")), "optimized")
+  };
+  // The trains at half a cell per step: Neu-Frankfurt's three S-Bahns; on Köln every Local train
+  // (0.6 in the file, which Flatland rounds to 0.5), the S-Bahn loops among them.
+  const slowKind = mapId === "frankfurt" ? "S-Bahn" : "Local";
+  const sbahns = network.trains.filter((t) => t.kind === slowKind).map((t) => t.handle);
+  const halfSpeed = scenario.agents.filter((a) => a.maxSpeed === 0.5).map((a) => a.handle);
+  if (mapId === "frankfurt") check(sbahns.length === 3 && sbahns.every((i) => scenario.agents[i].maxSpeed === 0.5), `the scenario's S-Bahns (trains ${sbahns.join(", ")}) run at half a cell per step`);
+  else check(sbahns.length > 0 && JSON.stringify(sbahns) === JSON.stringify(halfSpeed), `${mapId}: the scenario's ${sbahns.length} ${slowKind} trains (trains ${sbahns[0]}–${sbahns[sbahns.length - 1]}), and only they, run at half a cell per step`);
+  const atTarget = scenario.agents.filter((a) => a.initialPos === a.target).map((a) => a.handle);
+  check(mapId === "frankfurt" ? atTarget.length === 0 : atTarget.length === 6, `${mapId}: ${atTarget.length ? `trains ${atTarget.join(", ")} start on their destination` : "no train starts on its destination"}`);
+  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id]()) });
+}
+
+function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run }) {
+  // On Neu-Frankfurt the messages name the run alone, as before Köln was added.
+  const id = mapId === "frankfurt" ? runId : `${mapId} ${runId}`;
+  const fx = readJson(fixturePath(mapId, `trace_${runId}.json`));
   const rows = [fx.initial, ...fx.trace];
   const T = fx.steps;
   const n = scenario.agents.length;
@@ -175,8 +192,15 @@ for (const id of Object.keys(controllers)) {
   check(longestStep <= 1 + EPS, `${id}: no train is drawn moving more than a cell in one step, as none can (longest ${longestStep.toFixed(3)})`);
   check(arrivals > 0 && arrivalsStill.length === 0, `${id}: in each of the ${arrivals} steps a train reaches its destination, it is drawn gliding towards it (${arrivalsStill.slice(0, 5).join("; ") || "all"})`);
 
+  // Trains that start on their destination: never on the map, neither in Python's record nor drawn.
+  if (atTarget.length) {
+    const shown = [];
+    for (let t = 0; t <= T; t += 1) for (const i of atTarget) if (rows[t].pos[i] || trainPoint(run.paths, rail, i, t)) shown.push(`train ${i} step ${t}`);
+    check(shown.length === 0 && atTarget.every((i) => run.paths.routes[i].length === 0), `${id}: the ${atTarget.length} trains that start on their destination are never on the map, in Python's record or drawn (${shown.slice(0, 5).join("; ") || "none"})`);
+  }
+
   // speed, where no train halts: drawn exactly as far as Python moves it
-  if (id === "estimate") {
+  if (runId === "estimate") {
     let steps = 0, sbahnSteps = 0;
     const off = [];
     for (let t = 0; t < T; t += 1) {
@@ -225,10 +249,10 @@ for (const id of Object.keys(controllers)) {
   };
   const cst = standingCheck(counter, rows, T, n);
   if (cst.standing) check(cst.off.length > 0, `${id}: control: the standing check finds a drawing at the speed counter's distance leaving standing trains off centre in ${cst.off.length} of ${cst.standing} steps`);
-  else check(id === "estimate", `${id}: control: no train stands in this run, so there is nothing for the standing check to catch`);
+  else check(runId === "estimate", `${id}: control: no train stands in this run, so there is nothing for the standing check to catch`);
 }
 
 for (const [ok, what] of results) console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);
 const failed = results.filter(([ok]) => !ok).length;
 if (failed) { console.log(`\n${failed} of ${results.length} glide check(s) failed.`); process.exit(1); }
-console.log(`\nAll ${results.length} glide checks passed.\nGLIDE_OK`);
+console.log(`\nAll ${results.length} glide checks passed.\nGLIDE_OK maps=${maps.join(",")}`);

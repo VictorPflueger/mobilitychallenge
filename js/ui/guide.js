@@ -31,11 +31,12 @@ const COMMANDS = [
   { icon: "more", name: "Do nothing", text: "Carry on as before: moving on, or standing still." }
 ];
 
-const AREA_ICONS = { runs: "play", map: "map", kpis: "chart", panel: "book" };
+const AREA_ICONS = { maps: "pin", runs: "play", map: "map", kpis: "chart", panel: "book" };
 
 /**
- * Opens the guide. ctx: { scenario, network, runs }. onWatch(runId) is called after the guide closed
- * through a run's Watch button. Resolves the run to watch, or null.
+ * Opens the guide for the map on screen. ctx: { map, runList, scenario, network, runs, floor }.
+ * onWatch(runId) is called after the guide closed through a run's Watch button. Resolves the run to
+ * watch, or null.
  */
 export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
   return new Promise((resolve) => {
@@ -66,7 +67,7 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
             h("li", {}, p.icon ? h("span", { class: "vc-cell vc-cell--sm guide-cell", "aria-hidden": "true" }, icon(p.icon, 16)) : null,
               h("div", {}, h("strong", {}, p.title), h("p", {}, p.text)))));
         case "diagram": {
-          const drawing = bk.name === "network" ? networkDiagram(ctx.scenario, ctx.network) : piecesDiagram();
+          const drawing = bk.name === "network" ? networkDiagram(ctx.scenario, ctx.network, ctx.map) : piecesDiagram();
           return h("figure", { class: `guide-figure guide-figure--${bk.name}` }, drawing, h("figcaption", {}, bk.caption));
         }
         case "note":
@@ -76,7 +77,7 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
         case "kinds":
           return h("ul", { class: "guide-kinds" }, bk.kinds.map((k) =>
             h("li", {}, trainSwatch("ontime", "moving"),
-              h("div", {}, h("strong", {}, k.kind === "RB" ? "RB · regional train" : k.kind === "ICE" ? "ICE · intercity express" : "S-Bahn · commuter train"),
+              h("div", {}, h("strong", {}, k.label),
                 h("span", {}, `${k.count} trains, ${k.pace}`)))));
         case "timetable": {
           const ex = bk.example;

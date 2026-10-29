@@ -5,27 +5,33 @@ const ONE = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFr
 const ZERO = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
 const minus = (s) => s.replace("-", "−");
 
-/** A score: −74,022.6 (one decimal). Rounds −0.04 to 0.0, never "−0.0". */
+/** Rounds to `digits` decimals, halves away from zero (as Intl and Python's own reports do). */
+const roundTo = (v, digits) => {
+  const f = 10 ** digits;
+  return Math.sign(v) * (Math.round(Math.abs(v) * f) / f);
+};
+
+/** A score: −74,022.6 (one decimal); −270,672.75 is −270,672.8. Rounds −0.04 to 0.0, never "−0.0". */
 export function score(v) {
-  const r = Math.round(v * 10) / 10;
+  const r = roundTo(v, 1);
   return minus(ONE.format(r === 0 ? 0 : r));
 }
 
 /** Points without a sign: 74,022.6. */
 export function points(v) {
-  return ONE.format(Math.abs(Math.round(v * 10) / 10));
+  return ONE.format(Math.abs(roundTo(v, 1)));
 }
 
 const UPTO2 = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 });
 
 /** An amount in running text, as exact as it is and without a needless ".0": 936, 499.2, 1.75. */
 export function amount(v) {
-  return UPTO2.format(Math.abs(Math.round(v * 100) / 100));
+  return UPTO2.format(Math.abs(roundTo(v, 2)));
 }
 
 /** A signed difference: +36,360.0 or −4,885.2. */
 export function signed(v) {
-  const r = Math.round(v * 10) / 10;
+  const r = roundTo(v, 1);
   if (r === 0) return "±0.0";
   return r > 0 ? `+${ONE.format(r)}` : minus(ONE.format(r));
 }

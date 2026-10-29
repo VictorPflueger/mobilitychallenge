@@ -9,17 +9,24 @@ counter: an S-Bahn at speed 0.5 needs two steps per cell). Halting, detours and 
 add time, and a train that never arrives or never sets off pays more than a late one.
 
 Each stop that the train reaches L steps after its latest arrival costs at least
-0.5 x L (intermediate_late_arrival_penalty_factor), or 499.2 if it is lost, whichever is less; the
-destination L steps late costs L. The sum over all trains bounds every dispatcher's penalty from
-below: no score on the map can be better than minus that sum.
+0.5 x L (intermediate_late_arrival_penalty_factor), or the lost stop's penalty (499.2 on
+neufrankfurt_19agents, 684 on kk_36agents) if that is less; the destination L steps late costs L.
+The sum over all trains bounds every dispatcher's penalty from below: no score on the map can be
+better than minus that sum.
 
 On neufrankfurt_19agents only the two S-Bahns of the airport loop (S_FF_Hbf_FF_1 and _2) are bound
 to be late: 217 cells at two steps each take them past every latest arrival on their way, and each
 loses at least 472 points, so no dispatcher can score better than -944.
 
-export_fixtures.py writes the result to tests/fixtures/rules.json (with the penalties it uses), and
-checks there that the timing assumptions above hold in the three recorded runs; js/floor.js
-computes the same in the browser, and tests/guide.mjs compares the two.
+On kk_36agents (Köln) the six S-Bahn loops (S_clock_1-3, S_counter_1-3) start on the cell that is
+their destination. The search above never leaves a train's destination, so none of their stops is
+reachable here, and that is flatland's behaviour too: a train placed on its destination is done in
+the step it enters, every stop lost (6 x 684 points each). With six more trains that are too slow
+for their timetables, no dispatcher can score better than -25,010.5 there.
+
+export_fixtures.py writes the result to tests/fixtures/<map>/rules.json (with the penalties it uses),
+and checks there that the timing assumptions above hold in every recorded run; js/floor.js computes
+the same in the browser, and tests/guide.mjs compares the two.
 """
 from collections import deque
 

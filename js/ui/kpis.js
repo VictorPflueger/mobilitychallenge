@@ -1,14 +1,16 @@
 // Header KPI strip, four of Vici's stat cards for the run on screen: the score at the step shown,
-// the final score against the leaderboard, the trains that reached their destination and the stops
-// served with a real stop. Each tile pairs one value with a line of context (Bach et al. 2022).
-// A tile that shows an outcome takes that outcome's tone.
+// the final score against the leaderboard (on a map without a leaderboard figure, Köln, against the
+// best score any dispatcher can reach there, js/floor.js), the trains that reached their destination
+// and the stops served with a real stop. Each tile pairs one value with a line of context (Bach et al.
+// 2022). A tile that shows an outcome takes that outcome's tone.
 
 import { h } from "../dom.js";
-import { count, score, signed } from "../format.js";
-import { LEADERBOARD } from "../runs.js";
+import { amount, count, score, signed } from "../format.js";
 import { STATE } from "../engine/env.js";
 
-export function createKpis(container) {
+/** ctx: { map, floor } (js/maps.js, js/floor.js). */
+export function createKpis(container, { map, floor }) {
+  const leaderboard = map.leaderboard;
   const make = (id, label) => {
     const value = h("div", { class: "vc-stat__value kpi-value", id: `kpi-${id}-value` }, "—");
     const note = h("div", { class: "vc-stat__note kpi-sub", id: `kpi-${id}-sub` }, "");
@@ -19,7 +21,7 @@ export function createKpis(container) {
   };
   const tiles = {
     score: make("score", "Score"),
-    best: make("best", "Final vs. the best"),
+    best: leaderboard !== null ? make("best", "Final vs. the best") : make("best", "Final vs. best possible"),
     trains: make("trains", "Trains arrived"),
     stops: make("stops", "Stops served")
   };
@@ -37,8 +39,13 @@ export function createKpis(container) {
     const last = t >= run.steps;
     set(tiles.score, score(f.total[t]), last ? "" : "", last ? `final, after ${count(run.steps)} steps` : `at step ${count(t)}; final ${score(run.score)}`);
 
-    const diff = run.score - LEADERBOARD;
-    set(tiles.best, signed(diff), diff > 0 ? "resolved" : "affected", `${score(run.score)} vs ${count(LEADERBOARD)}`);
+    if (leaderboard !== null) {
+      const diff = run.score - leaderboard;
+      set(tiles.best, signed(diff), diff > 0 ? "resolved" : "affected", `${score(run.score)} vs ${count(leaderboard)}`);
+    } else {
+      // No score can be better than −floor; the tile shows how far the run's final score is above it.
+      set(tiles.best, signed(run.score + floor.total), "", `${score(run.score)} vs −${amount(floor.total)}`);
+    }
 
     let arrived = 0;
     let onTime = 0;

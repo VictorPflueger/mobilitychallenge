@@ -4,11 +4,12 @@ Runs EstimatePlanner (tools/estimate_planner.py) with the challenge's runner (ru
 rendering off) on data/maps/neufrankfurt_19agents.json and checks, after every step, that every
 train stands exactly where the plan put it, so no train was ever held back by another; that all 19
 trains arrive, each at its planned step; and that the actions handed to env.step are the ones in
-data/estimate_actions.json, which the page replays.
+data/frankfurt/estimate_actions.json, which the page replays. The estimate exists for Neu-Frankfurt
+only: it reconstructs the leaderboard's entry there.
 
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
   <repo>/.venv/bin/python -B tools/check_estimate.py --repo <repo>           check
-  <repo>/.venv/bin/python -B tools/check_estimate.py --repo <repo> --write   write data/estimate_actions.json
+  <repo>/.venv/bin/python -B tools/check_estimate.py --repo <repo> --write   write data/frankfurt/estimate_actions.json
 The env.step wrapper below records and compares; it changes nothing.
 """
 import argparse
@@ -17,15 +18,17 @@ import json
 import os
 import sys
 
-from export_fixtures import MAP, SITE, Recorder, load_runner
+from export_fixtures import Recorder, load_runner
+from maps import SITE, challenge_map, site_data
 
-PLAN_FILE = os.path.join(SITE, 'data', 'estimate_actions.json')
+MAP = challenge_map('frankfurt')
+PLAN_FILE = site_data('frankfurt', 'estimate_actions.json')
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--repo', required=True, help='checkout of the challenge repository (with its .venv)')
-    ap.add_argument('--write', action='store_true', help='write data/estimate_actions.json')
+    ap.add_argument('--write', action='store_true', help='write data/frankfurt/estimate_actions.json')
     args = ap.parse_args()
     tbsim = load_runner(os.path.abspath(args.repo))
     import scenario_loader
@@ -84,14 +87,14 @@ def main():
     else:
         stored = json.load(open(PLAN_FILE)) if os.path.exists(PLAN_FILE) else None
         if stored is None:
-            problems.append('data/estimate_actions.json is missing')
+            problems.append('data/frankfurt/estimate_actions.json is missing')
         else:
             if stored['actions'] != rec.actions:
                 first = next((t for t, (x, y) in enumerate(zip(stored['actions'], rec.actions)) if x != y), min(len(stored['actions']), len(rec.actions)))
-                problems.append(f'data/estimate_actions.json differs from the planner from step {first + 1}')
+                problems.append(f'data/frankfurt/estimate_actions.json differs from the planner from step {first + 1}')
             if stored['reward'] != res['reward'] or stored['map_sha256'] != plan['map_sha256']:
-                problems.append('data/estimate_actions.json: reward or map differ')
-            print(f'data/estimate_actions.json: {len(stored["actions"])} steps, reward {stored["reward"]}; '
+                problems.append('data/frankfurt/estimate_actions.json: reward or map differ')
+            print(f'data/frankfurt/estimate_actions.json: {len(stored["actions"])} steps, reward {stored["reward"]}; '
                   f'{"identical to" if not problems else "checked against"} the planner')
     for p in problems:
         print('PROBLEM ' + p)

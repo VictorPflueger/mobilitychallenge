@@ -1,18 +1,22 @@
-// The browser engine against the official Python environment, step for step (Node.js only).
+// The browser engine against the official Python environment, step for step (Node.js only), on
+// every map (tests/lib/maps.mjs: Neu-Frankfurt and Köln).
 //   baseline | estimate | optimized   runs the JavaScript engine with that controller and compares
-//                                     every step with tests/fixtures/trace_<name>.json, which
+//                                     every step with tests/fixtures/<map>/trace_<name>.json, which
 //                                     tools/export_fixtures.py records from flatland-rl 4.2.2 through
 //                                     the challenge's runner: each train's action, position,
 //                                     direction, state, speed, distance in the cell, reward and done
-//                                     flag, and the final score, compared exactly (no tolerance)
+//                                     flag, and the final score, compared exactly (no tolerance).
+//                                     A map without that run (Köln has no estimate) skips it
 //   terms                             the score breakdown the page shows (js/sim.js, as the page runs
 //                                     it): every term of every reward (a crash, a stop not served, a
 //                                     delay, ...) against the terms the Python reward function itself
-//                                     computed (tools/export_fixtures.py, Decomposer), for all three
-//                                     runs, and the breakdown's totals and counts per kind
+//                                     computed (tools/export_fixtures.py, Decomposer), for every run,
+//                                     and the breakdown's totals and counts per kind
 //   distance-map                      the distance map of every train, cell and direction, by digest
-//   python                            sum(), set order and round() against CPython 3.13 on random inputs
-// Usage: node tests/engine.mjs [case ...]   (no case: all of them)
+//   python                            sum(), set order and round() against CPython 3.13 on random
+//                                     inputs (once, for both maps)
+// Usage: node tests/engine.mjs [case ...] [--map frankfurt|koeln] [koeln:baseline ...]
+//        (no case: all of them; no map: every map)
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -22,12 +26,13 @@ import { PySmallIntSet, pyRound, pySum } from "../js/engine/py.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { KINDS, breakdown, simulate } from "../js/sim.js";
+import { MAPS, fixturePath, mapPath, parseCases, planPath } from "./lib/maps.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
 
 export function makeEnv(options = {}) {
-  const data = options.mapData || read("data/neufrankfurt_19agents.json");
+  const data = options.mapData || read(mapPath(options.map || "frankfurt"));
   const scenario = loadScenario(data);
   if (options.mutateScenario) options.mutateScenario(scenario);
   const env = new RailEnv(scenario, options.env || {});
@@ -38,7 +43,7 @@ export function makeEnv(options = {}) {
 export function makeController(name, options = {}) {
   if (name === "baseline") return new OrderedController();
   if (name === "estimate" || name === "optimized") {
-    const plan = read(name === "estimate" ? "data/estimate_actions.json" : "data/planner_actions.json");
+    const plan = read(planPath(options.map || "frankfurt", name));
     if (options.mutatePlan) options.mutatePlan(plan);
     return new ReplayController(plan, name);
   }
@@ -76,7 +81,7 @@ function firstDifference(expected, actual) {
  * options lets tests/engine-negctl.mjs plant a change in the engine.
  */
 export function parity(name, options = {}) {
-  const fixture = read(`tests/fixtures/trace_${name}.json`);
+  const fixture = read(fixturePath(options.map || "frankfurt", `trace_${name}.json`));
   const env = makeEnv(options);
   const controller = makeController(name, options);
   let step = 0;
@@ -114,8 +119,9 @@ export function parity(name, options = {}) {
  * per kind as the Score tab lists them, and the final score. Returns { ok, message, kinds }.
  */
 export function termsParity(name, options = {}) {
-  const fixture = read(`tests/fixtures/trace_${name}.json`);
-  const scenario = loadScenario(read("data/neufrankfurt_19agents.json"));
+  const map = options.map || "frankfurt";
+  const fixture = read(fixturePath(map, `trace_${name}.json`));
+  const scenario = loadScenario(read(mapPath(map)));
   const run = simulate(scenario, makeController(name, options));
   const mine = run.ledger.map((e) => [e.step, e.agent, e.kind, e.value, e.stop]);
   const theirs = fixture.terms;
@@ -145,7 +151,7 @@ export function termsParity(name, options = {}) {
 }
 
 export function distanceMapParity(options = {}) {
-  const fixture = read("tests/fixtures/trace_baseline.json").distance_map;
+  const fixture = read(fixturePath(options.map || "frankfurt", "trace_baseline.json")).distance_map;
   const env = makeEnv(options);
   const perAgent = env.distanceMaps.map((dm) => createHash("sha256").update(Buffer.from(dm.buffer, dm.byteOffset, dm.byteLength)).digest("hex"));
   const all = createHash("sha256");
@@ -177,36 +183,48 @@ function pythonSemantics() {
 const CASES = ["python", "distance-map", "baseline", "estimate", "optimized", "terms"];
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const wanted = process.argv.slice(2).length ? process.argv.slice(2) : CASES;
+  const { maps, cases: wanted } = parseCases(process.argv.slice(2), CASES);
   let failed = 0;
+  const covered = new Set();
   for (const name of wanted) {
     if (name === "python") {
       const r = pythonSemantics();
       if (r.ok) console.log(`PASS  Python ${r.python} semantics: ${r.counts[0]} sums, ${r.counts[1]} set orders, ${r.counts[2]} roundings identical\nPYTHON_SEMANTICS_OK`);
       else { failed += 1; console.log(`FAIL  Python semantics: ${r.problems.length} differences, first: ${r.problems.slice(0, 3).join("; ")}`); }
-    } else if (name === "distance-map") {
-      const r = distanceMapParity();
-      if (r.ok) console.log(`PASS  distance map ${r.shape.join(" x ")} (trains, rows, columns, directions) identical to flatland's\nDISTANCE_MAP_PARITY_OK`);
-      else { failed += 1; console.log(`FAIL  distance map differs for trains ${r.bad.join(", ") || "(shape or overall digest)"}`); }
-    } else if (name === "terms") {
-      let bad = 0;
-      for (const run of ["baseline", "estimate", "optimized"]) {
-        const r = termsParity(run);
-        if (r.ok) {
-          const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 10) / 10}`);
-          console.log(`PASS  ${run}: ${r.terms} terms identical to the Python reward function's (${listed.join(", ")})`);
-        } else { bad += 1; console.log(`FAIL  ${run}: ${r.message}`); }
-      }
-      if (bad) failed += 1; else console.log("TERMS_PARITY_OK");
-    } else if (CASES.includes(name)) {
-      const t0 = Date.now();
-      const r = parity(name);
-      if (r.ok) console.log(`PASS  ${name}: ${r.steps} steps identical to the Python environment, score ${r.reward} (${Date.now() - t0} ms)\nENGINE_PARITY_OK ${name}`);
-      else { failed += 1; console.log(`FAIL  ${name}: ${r.message}`); }
-    } else {
+      continue;
+    }
+    if (!CASES.includes(name)) {
       failed += 1;
       console.log(`FAIL  unknown case ${name}`);
+      continue;
+    }
+    for (const map of maps) {
+      const runs = MAPS[map].runs;
+      if (name === "distance-map") {
+        const r = distanceMapParity({ map });
+        if (r.ok) console.log(`PASS  ${map}: distance map ${r.shape.join(" x ")} (trains, rows, columns, directions) identical to flatland's\nDISTANCE_MAP_PARITY_OK ${map}`);
+        else { failed += 1; console.log(`FAIL  ${map}: distance map differs for trains ${r.bad.join(", ") || "(shape or overall digest)"}`); }
+      } else if (name === "terms") {
+        let bad = 0;
+        for (const run of runs) {
+          const r = termsParity(run, { map });
+          if (r.ok) {
+            const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 10) / 10}`);
+            console.log(`PASS  ${map} ${run}: ${r.terms} terms identical to the Python reward function's (${listed.join(", ")})`);
+          } else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
+        }
+        if (bad) failed += 1; else console.log(`TERMS_PARITY_OK ${map}`);
+      } else {
+        if (!runs.includes(name)) { console.log(`skip  ${map}: no ${name} run on this map`); continue; }
+        const t0 = Date.now();
+        const r = parity(name, { map });
+        if (r.ok) console.log(`PASS  ${map} ${name}: ${r.steps} steps identical to the Python environment, score ${r.reward} (${Date.now() - t0} ms)\nENGINE_PARITY_OK ${map}:${name}`);
+        else { failed += 1; console.log(`FAIL  ${map} ${name}: ${r.message}`); }
+      }
+      covered.add(map);
     }
   }
+  // The suite's marker: every case passed, on every map named (all of them by default).
+  if (!failed && wanted.length === CASES.length && maps.every((m) => covered.has(m))) console.log(`ENGINE_SUITE_OK maps=${maps.join(",")}`);
   process.exit(failed ? 1 : 0);
 }

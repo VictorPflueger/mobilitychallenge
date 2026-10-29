@@ -1,4 +1,4 @@
-// The rail network of Neu-Frankfurt and its trains, drawn in SVG on Vici's honeycomb canvas.
+// The rail network of the map on screen and its trains, drawn in SVG on Vici's honeycomb canvas.
 // Tracks, platforms and buffer stops scale with the panel; train markers and labels keep their size
 // on screen, so they stay legible on a projector and on a laptop. Colours come from classes in
 // css/map.css (Vici's tokens), so a theme change repaints the map. Nothing in it is round: trains are
@@ -8,6 +8,7 @@ import { h, svg, prefersReducedMotion } from "../dom.js";
 import { trackDrawing } from "../network.js";
 import { trainStatus } from "../sim.js";
 import { trainPoint } from "../glide.js";
+import { networkBox } from "../maps.js";
 
 export const HEX = (r) => [0, 1, 2, 3, 4, 5].map((k) => {
   const a = (Math.PI / 3) * k;
@@ -19,17 +20,22 @@ const MARKER_MAX = 26;  // trains on neighbouring tracks barely overlap
 const NUMBER_MIN = 17;  // below this width the number is left out (the title and the table name it)
 const LABEL_PX = 13;    // station label size on screen
 
-/** The two views: the whole network, and the busy middle around the Hauptbahnhof. */
-const VIEWS = {
-  // room above and below the outermost lines for the names of the stations there
-  network: { label: "Whole network", box: (W, H) => [-1.5, -3.5, W + 3, H + 7] },
-  hbf: { label: "Around the Hbf", box: () => [24, 8.5, 59, 29] }
-};
+/**
+ * The two views of a map (js/maps.js): the whole network, and its busy middle (around Neu-Frankfurt's
+ * Hauptbahnhof, around Köln's hub, Stop 14). Boxes in cell units [x, y, width, height].
+ */
+function viewsOf(map, rail) {
+  return {
+    network: { label: "Whole network", box: networkBox(rail, map) },
+    middle: { label: map.views.middle.label, box: map.views.middle.box }
+  };
+}
 
-export function createMap(root, { scenario, network, onSelect }) {
+export function createMap(root, { map, scenario, network, onSelect }) {
   const rail = scenario.rail;
   const W = rail.width;
   const H = rail.height;
+  const VIEWS = viewsOf(map, rail);
   const drawing = trackDrawing(rail);
   const reduced = prefersReducedMotion();
 
@@ -67,12 +73,12 @@ export function createMap(root, { scenario, network, onSelect }) {
   });
 
   let viewId = "network";
-  let box = VIEWS.network.box(W, H);
+  let box = VIEWS.network.box;
   const view = svg("svg", {
     class: "map-svg", viewBox: box.join(" "), preserveAspectRatio: "xMidYMid meet",
     role: "img", "aria-labelledby": "map-title map-desc"
   },
-  svg("title", { id: "map-title" }, "Rail network of Neu-Frankfurt"),
+  svg("title", { id: "map-title" }, `Rail network of ${map.name}`),
   svg("desc", { id: "map-desc" }, `${network.stations.length} stations and ${scenario.agents.length} trains on a ${H} by ${W} cell grid. The Trains tab lists every train with its state.`),
   tracks, crossings, stations, labels, trainsLayer);
 
@@ -93,11 +99,12 @@ export function createMap(root, { scenario, network, onSelect }) {
       viewButtons.set(id, b);
       return b;
     }));
+  root.dataset.map = map.id;
   root.append(view, caption, tools, legend);
 
   function setView(id) {
     viewId = id;
-    box = VIEWS[id].box(W, H);
+    box = VIEWS[id].box;
     view.setAttribute("viewBox", box.join(" "));
     root.dataset.view = id;
     for (const [vid, b] of viewButtons) b.setAttribute("aria-pressed", String(vid === id));

@@ -194,7 +194,7 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
 .moment:hover { background: var(--vc-bg-subtle); }
 .moment:focus-visible { outline: 2px solid var(--vc-focus); outline-offset: 2px; }
 .moment[data-state="current"] { box-shadow: inset 0 0 0 2px var(--vc-text); }
-.moment[data-kind="collision"], .moment[data-kind="gridlock"], .moment[data-kind="pass"] { --_tone: var(--vc-danger-solid); }
+.moment[data-kind="collision"], .moment[data-kind="gridlock"], .moment[data-kind="pass"], .moment[data-kind="at-target"] { --_tone: var(--vc-danger-solid); }
 .moment[data-kind="wait"] { --_tone: var(--vc-warning-text); }
 .moment[data-kind="stop"], .moment[data-kind="arrive"], .moment[data-kind="all-arrived"] { --_tone: var(--vc-success-solid); }
 .moment-step { padding-top: 1px; color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }

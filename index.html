@@ -8,7 +8,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Dispatch Lab runs the T-Brain Mobility Challenge's Neu-Frankfurt scenario in the browser: 19 trains under three dispatching strategies, the challenge's baseline, an estimate of the leaderboard's current best and an optimized planner, simulated and scored with the challenge's own rules.">
+  <meta name="description" content="Dispatch Lab runs the T-Brain Mobility Challenge in the browser on two of its rail networks, Neu-Frankfurt and Köln: the challenge's baseline, an estimate of the leaderboard's current best and an optimized planner, simulated and scored with the challenge's own rules.">
   <title>Dispatch Lab — T-Brain Mobility Challenge</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
 
@@ -35,12 +35,14 @@
       <span class="vc-cell vc-cell--lilac" aria-hidden="true"><span class="vc-icon vc-icon--flag"></span></span>
       <div class="brand-text">
         <span class="brand-name">Dispatch Lab</span>
-        <span class="brand-sub">T-Brain Mobility Challenge · Neu-Frankfurt, 19 trains</span>
+        <span class="brand-sub" id="brand-sub">T-Brain Mobility Challenge</span>
       </div>
     </div>
 
     <div class="header-badges">
-      <span id="mode-badge" class="vc-tag mode-badge" data-mode="simulation" title="Simulated trains on the challenge's fictional network, not real operations">SIMULATION</span>
+      <!-- The map switch: one button per map (js/main.js); another map loads that map's page. -->
+      <div id="map-switch" class="segmented map-switch" role="group" aria-label="Map"></div>
+      <span id="mode-badge" class="vc-tag mode-badge" data-mode="simulation" title="Simulated trains on one of the challenge's maps, not real operations">SIMULATION</span>
       <span class="vc-tooltip-anchor">
         <button type="button" id="btn-about" class="vc-button vc-button--secondary about-btn" aria-labelledby="tip-about"><span class="vc-icon vc-icon--info" aria-hidden="true"></span><span class="btn-text">How it works</span></button>
         <span class="vc-tooltip vc-tooltip--bottom" role="tooltip" id="tip-about">How it works</span>
@@ -58,7 +60,7 @@
   <nav id="controls" class="controls" aria-label="Run and playback"></nav>
 
   <main class="workspace">
-    <section class="map-panel" aria-label="The rail network of Neu-Frankfurt with its trains">
+    <section class="map-panel" aria-label="The rail network with its trains">
       <div id="map"></div>
     </section>
     <section id="panel" class="side-panel" aria-label="The run's details" tabindex="-1"></section>

@@ -4,8 +4,7 @@
 // simulated and from the scenario; nothing here is typed in. tests/story.mjs checks these facts
 // against the Python runner's own traces.
 
-import { STATE } from "./engine/env.js";
-import { stationName } from "./network.js";
+import { STATE, balancedPenalties } from "./engine/env.js";
 import { amount, count, plural, score } from "./format.js";
 
 /** The facts of a run. */
@@ -70,7 +69,7 @@ export function runFacts(run, scenario) {
 }
 
 const trainName = (network, i) => network.trains[i].name;
-const stopName = (network, i, k) => stationName(network.trains[i].stops[k]);
+const stopName = (network, i, k) => network.stationName(network.trains[i].stops[k]);
 
 /**
  * The moments worth watching in a run, in order: [{ step, kind, train, title, text }]. Steps are the
@@ -81,11 +80,11 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario),
   const out = [];
   const firstEvent = (kind) => run.events.find((e) => e.kind === kind);
 
-  const enter = firstEvent("enter");
+  const enter = run.events.find((e) => e.kind === "enter" && !e.atTarget);
   if (enter) {
     out.push({
       step: enter.step, kind: "enter", train: enter.train, title: "The first train enters",
-      text: `${trainName(network, enter.train)} sets off from ${stationName(network.trains[enter.train].stops[0])}. ${plural(facts.n, "train")} have ${count(facts.stops)} stops to serve between them.`
+      text: `${trainName(network, enter.train)} sets off from ${network.stationName(network.trains[enter.train].stops[0])}. ${plural(facts.n, "train")} have ${count(facts.stops)} stops to serve between them.`
     });
   }
 
@@ -97,11 +96,23 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario),
     });
   }
 
+  // A train whose first cell is its destination: done the moment it enters, every stop lost.
+  const atTarget = run.events.find((e) => e.kind === "enter" && e.atTarget);
+  if (atTarget) {
+    const k = scenario.agents[atTarget.train].waypoints.length - 2;
+    const P = balancedPenalties(scenario.maxSteps);
+    const alike = run.events.filter((e) => e.kind === "enter" && e.atTarget).length;
+    out.push({
+      step: atTarget.step, kind: "at-target", train: atTarget.train, title: "Done before it moves",
+      text: `${trainName(network, atTarget.train)} starts on the cell that is its destination, so the simulator finishes it the moment it enters: all ${plural(k, "stop")} on its way are lost (${amount(k * P.notServed)} points).${alike > 1 ? ` ${plural(alike - 1, "more train")} ${alike === 2 ? "fares" : "fare"} the same.` : ""}`
+    });
+  }
+
   const pass = firstEvent("pass");
   if (pass) {
     out.push({
       step: pass.step, kind: "pass", train: pass.train, title: "A station passed without stopping",
-      text: `${trainName(network, pass.train)} runs through ${stopName(network, pass.train, pass.stop)} without halting. A stop counts only if the train halts at a platform, so this one is lost: 499.2 points.`
+      text: `${trainName(network, pass.train)} runs through ${stopName(network, pass.train, pass.stop)} without halting. A stop counts only if the train halts at a platform, so this one is lost: ${amount(balancedPenalties(scenario.maxSteps).notServed)} points.`
     });
   }
 
@@ -132,7 +143,9 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario),
     });
   }
 
-  const arrive = firstEvent("arrive");
+  // The first train to reach its destination by running there (not one done as it entered).
+  const doneOnEntry = new Set(run.events.filter((e) => e.kind === "enter" && e.atTarget).map((e) => e.train));
+  const arrive = run.events.find((e) => e.kind === "arrive" && !doneOnEntry.has(e.train));
   if (arrive) {
     const dest = network.trains[arrive.train].to;
     out.push({
@@ -154,7 +167,7 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario),
     text: `${count(facts.arrived)} of ${count(facts.n)} trains arrived and ${count(facts.served)} of ${count(facts.stops)} stops were served. Score: ${score(run.score)}.`
   });
 
-  const order = { enter: 0, collision: 1, pass: 2, stop: 2, wait: 3, gridlock: 4, arrive: 5, "all-arrived": 6, end: 7 };
+  const order = { enter: 0, "at-target": 1, collision: 1, pass: 2, stop: 2, wait: 3, gridlock: 4, arrive: 5, "all-arrived": 6, end: 7 };
   out.sort((a, b) => a.step - b.step || order[a.kind] - order[b.kind]);
   return out;
 }

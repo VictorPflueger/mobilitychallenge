@@ -62,7 +62,7 @@ export const COLOUR_PAIRS = [
   ["Situation line: its marker, gridlock", "danger-solid", "surface", "mark"],
   ["Situation line: its marker, all arrived", "success-solid", "surface", "mark"],
   // The Story tab (on the surface): the moments' stripes, the moment on screen, the shares.
-  ["Story: a collision, a gridlock or a station passed, its stripe", "danger-solid", "surface", "mark"],
+  ["Story: a collision, a gridlock, a station passed or a train done as it enters, its stripe", "danger-solid", "surface", "mark"],
   ["Story: a wait, its stripe", "warning-text", "surface", "mark"],
   ["Story: a stop served, an arrival, its stripe", "success-solid", "surface", "mark"],
   ["Story: the moment on screen, its ink frame", "text", "surface", "mark"],
@@ -108,7 +108,8 @@ export const SEPARATIONS = [
  * The hexagon test's tour of the app (tests/hexagon.mjs): its main states, the dialogs and views on
  * the way. The page has just been opened without SKIP_INTRO, so the guide opens by itself: all seven
  * chapters, the AI label's note in it, and the guide on a phone (the pieces drawing with numbered
- * markers and a key, the timetable in blocks). Then the runs with their story and situation line.
+ * markers and a key, the timetable in blocks). Then the runs with their story and situation line,
+ * and Köln from the map switch: its runs, its story, its middle view and its guide.
  * visit(name, { settle }) checks the page as it is, settle ms (250) after the step.
  */
 export async function hexagonTour(page, visit) {
@@ -163,6 +164,26 @@ export async function hexagonTour(page, visit) {
   await page.click("#btn-end");
   await page.click("#tab-story");
   await visit("estimate at the end, its story");
+  // Köln, from the map switch in the header.
+  await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
+  await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
+  await visit("Köln: optimized run at the start, its story");
+  await page.click('.run-switch button[data-run="baseline"]');
+  await page.evaluate(() => window.dispatchLab.seek(600));
+  await visit("Köln: baseline at step 600, gridlock");
+  await page.click('.moment[data-kind="at-target"]');
+  await visit("Köln: a train done as it enters, picked");
+  await page.click('.map-views button:nth-child(2)');
+  await visit("Köln: around Stop 14");
+  await page.click("#tab-score");
+  await visit("Köln: the scores, no leaderboard");
+  await page.click("#btn-about");
+  await page.waitForSelector(".guide-modal", { timeout: 5000 });
+  for (const id of ["challenge", "score", "results"]) {
+    await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
+    await visit(`Köln: the guide: ${id}`);
+  }
+  await page.keyboard.press("Escape");
 }
 
 /**

@@ -1,9 +1,11 @@
-// What happened in a run, worked out from the Python runner's own trace (tests/fixtures/trace_*.json,
-// recorded by tools/export_fixtures.py) and the scenario file alone: no code of the page is used, so
-// tests/story.mjs and tests/guide.mjs can hold the page's story and guide against it.
+// What happened in a run, worked out from the Python runner's own trace
+// (tests/fixtures/<map>/trace_*.json, recorded by tools/export_fixtures.py) and the scenario file
+// alone: no code of the page is used, so tests/story.mjs and tests/guide.mjs can hold the page's
+// story and guide against it.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fixturePath, mapPath } from "./maps.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const readJson = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
@@ -24,9 +26,10 @@ export function timetables(data) {
   });
 }
 
-/** The facts of one run from its Python trace. */
-export function traceFacts(name, data = readJson("data/neufrankfurt_19agents.json")) {
-  const fx = readJson(`tests/fixtures/trace_${name}.json`);
+/** The facts of one run on a map (frankfurt by default) from its Python trace. */
+export function traceFacts(name, data, map = "frankfurt") {
+  data = data || readJson(mapPath(map));
+  const fx = readJson(fixturePath(map, `trace_${name}.json`));
   const tts = timetables(data);
   const n = tts.length;
   const rows = [fx.initial, ...fx.trace]; // rows[t]: the state at the end of step t
@@ -43,6 +46,10 @@ export function traceFacts(name, data = readJson("data/neufrankfurt_19agents.jso
       if (arrival[i] === null && rows[t].state[i] === DONE) arrival[i] = t;
     }
   }
+  // A train whose first cell is its destination is done in the step it enters and never shows on
+  // the map (Köln's S-Bahn loops): it entered at its arrival.
+  const atTarget = [];
+  for (let i = 0; i < n; i += 1) if (entered[i] === null && arrival[i] !== null) { entered[i] = arrival[i]; atTarget.push(i); }
   const onMapAtEnd = rows[T].pos.filter((p) => p !== null).length;
   const gridlockFrom = onMapAtEnd && lastChange < T ? lastChange + 1 : null;
 
@@ -93,7 +100,7 @@ export function traceFacts(name, data = readJson("data/neufrankfurt_19agents.jso
   const arrived = arrival.filter((s) => s !== null).length;
 
   return {
-    name, n, steps: T, score: fx.reward, arrived, arrival, entered,
+    name, n, steps: T, score: fx.reward, arrived, arrival, entered, atTarget,
     lastArrival: arrived ? Math.max(...arrival.filter((s) => s !== null)) : null,
     collisions: collisions.length,
     firstCollision: collisions.length ? { step: collisions[0][0], train: collisions[0][1], value: collisions[0][3] } : null,

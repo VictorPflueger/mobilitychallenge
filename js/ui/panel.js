@@ -1,4 +1,4 @@
-// The side panel: the run's story (what happens and when), its score (the four scores, where the
+// The side panel: the run's story (what happens and when), its score (the map's scores, where the
 // points go, the score over time), its trains (state, stops, penalty, and the timetable of the
 // selected one), its events and the method. Vici's tabs (role tablist); the panel owns them.
 
@@ -7,12 +7,12 @@ import { icon } from "../icons.js";
 import { amount, count, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
 import { moments, runFacts } from "../story.js";
-import { RUNS, runById, LEADERBOARD, ESTIMATE_NOTE } from "../runs.js";
-import { comparison, scoreOverTime } from "./charts.js";
+import { runById, ESTIMATE_NOTE } from "../runs.js";
+import { comparison, inWords, scoreOverTime } from "./charts.js";
 import { aiLabel } from "./ailabel.js";
 import { trainSwatch, trackGlyph } from "./map.js";
 import { STATE, balancedPenalties } from "../engine/env.js";
-import { scoreFloor } from "../floor.js";
+import { floorReasons } from "../floor.js";
 
 const TABS = [
   { id: "story", label: "Story" },
@@ -23,7 +23,9 @@ const TABS = [
 ];
 
 export function createPanel(root, ctx) {
-  const { scenario, network, runs, verified, reference } = ctx;
+  const { map, runList, scenario, network, runs, verified, reference, floor } = ctx;
+  // The penalties as the challenge scales them to this map's episode (1,248 or 1,710 steps).
+  const P = balancedPenalties(scenario.maxSteps);
   const tabs = new Map();
   const panels = new Map();
   const list = h("div", { class: "vc-tabs__list panel-tabs", role: "tablist", "aria-label": "Run details" });
@@ -69,10 +71,20 @@ export function createPanel(root, ctx) {
     }
     return stories.get(id);
   };
-  const NEXT = {
-    baseline: { run: "estimate", text: "Next: how the estimate gets every train through" },
-    estimate: { run: "optimized", text: "Next: how the optimized run serves every stop" },
-    optimized: { run: null, text: "Compare all four scores" }
+  // The way on from a run's story: the map's next run, told by what it achieves, and after the last
+  // run the comparison of the map's scores (its runs and, where there is one, the leaderboard's).
+  const RUN_NAME = { baseline: "baseline", estimate: "estimate", optimized: "optimized run" };
+  const scoresShown = runList.length + (map.leaderboard !== null ? 1 : 0);
+  const nextOf = (id) => {
+    const i = runList.findIndex((r) => r.id === id);
+    const nxt = runList[i + 1];
+    if (!nxt) return { run: null, text: scoresShown === 2 ? "Compare the two scores" : `Compare all ${inWords(scoresShown).toLowerCase()} scores` };
+    const f = storyOf(nxt.id).facts;
+    const name = RUN_NAME[nxt.id];
+    const text = f.served === f.stops ? `Next: how the ${name} serves every stop`
+      : f.arrived === f.n ? `Next: how the ${name} gets every train through`
+        : `Next: the ${name}`;
+    return { run: nxt.id, text };
   };
   const storyHolder = h("div", { class: "story" });
   panels.get("story").append(storyHolder);
@@ -96,7 +108,7 @@ export function createPanel(root, ctx) {
       },
       h("span", { class: "moment-step" }, `Step ${count(m.step)}`),
       h("span", { class: "moment-body" }, h("strong", {}, m.title), h("span", {}, m.text))));
-      const next = NEXT[id];
+      const next = nextOf(id);
       clear(storyHolder).append(
         h("section", { class: "story-intro" },
           h("div", { class: "story-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("h3", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
@@ -116,7 +128,7 @@ export function createPanel(root, ctx) {
           lost.length
             ? h("ul", { class: "story-why" }, lost.slice(0, 4).map((k) => h("li", { dataset: { tone: k.tone } },
               h("span", { class: "story-why-share" }, `${Math.round((Math.abs(k.value) / total) * 100)} %`),
-              h("span", {}, h("strong", {}, `${k.label}: ${score(k.value)}`), h("span", {}, `${count(k.count)} × · ${k.hint}`)))))
+              h("span", {}, h("strong", {}, `${k.label}: ${score(k.value)}`), h("span", {}, `${count(k.count)} × · ${k.hint(P)}`)))))
             : h("p", {}, "No penalty at all.")),
         h("button", {
           type: "button", class: "vc-button vc-button--secondary story-next",
@@ -133,13 +145,13 @@ export function createPanel(root, ctx) {
   }
 
   // ---- Score -------------------------------------------------------------------------------------
-  const scoreChart = scoreOverTime(runs);
+  const scoreChart = scoreOverTime(runs, { map, runList });
   const compareHolder = h("div", { class: "compare-holder" });
   const breakdownHolder = h("div", { class: "breakdown-holder" });
   panels.get("score").append(compareHolder, breakdownHolder, scoreChart.el);
 
   function renderCompare() {
-    clear(compareHolder).appendChild(comparison(runs, { selected: state.run, verified, onPick: (id) => ctx.onRun(id) }));
+    clear(compareHolder).appendChild(comparison(runs, { map, runList, selected: state.run, verified, onPick: (id) => ctx.onRun(id) }));
   }
 
   function renderBreakdown() {
@@ -155,7 +167,7 @@ export function createPanel(root, ctx) {
       const finBar = h("span", { class: "kind-bar-final" });
       finBar.style.setProperty("--w", `${((Math.abs(f.value) / max) * 100).toFixed(2)}%`);
       return h("tr", { dataset: { tone: k.tone, zero: String(f.value === 0 && f.count === 0) } },
-        h("th", { scope: "row" }, h("span", { class: "kind-mark", "aria-hidden": "true" }, icon(k.tone === "danger" ? "error" : "warning", 15)), h("span", { class: "kind-label" }, k.label), h("span", { class: "kind-hint" }, k.hint)),
+        h("th", { scope: "row" }, h("span", { class: "kind-mark", "aria-hidden": "true" }, icon(k.tone === "danger" ? "error" : "warning", 15)), h("span", { class: "kind-label" }, k.label), h("span", { class: "kind-hint" }, k.hint(P))),
         h("td", { class: "kind-track" }, finBar, bar),
         h("td", { class: "num" }, b.count ? `${count(b.count)}×` : "—"),
         h("td", { class: "num strong" }, b.value ? score(b.value) : "0.0"),
@@ -333,22 +345,28 @@ export function createPanel(root, ctx) {
 
   // ---- Method ------------------------------------------------------------------------------------
   const symbol = (glyph, name, text) => h("li", {}, glyph, h("span", {}, h("strong", {}, `${name}: `), text));
-  const P = balancedPenalties(scenario.maxSteps);
-  const floor = scoreFloor(scenario, P);
   renderMethod();
   function renderMethod() {
     const p = panels.get("method");
-    const runsInfo = RUNS.map((r) => h("li", { dataset: { run: r.id } },
+    const runsInfo = runList.map((r) => h("li", { dataset: { run: r.id } },
       h("div", { class: "method-run-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
       h("p", {}, r.does), h("p", { class: "muted" }, r.how)));
     const ref = reference;
-    p.append(
+    const nRuns = inWords(runList.length).toLowerCase();
+    const planned = runList.filter((r) => r.source === "plan");
+    // The runs end at different steps where every train arrives early (Neu-Frankfurt's estimate and
+    // optimized run); Köln's both run the full 1,710.
+    const runSteps = runList.map((r) => ref.runs[r.id].steps);
+    const stepsText = runSteps.every((s) => s === runSteps[0])
+      ? `at each of the ${count(runSteps[0])} steps of the ${nRuns} runs`
+      : `at every step of the ${nRuns} runs (${runSteps.slice(0, -1).map(count).join(", ")} and ${count(runSteps[runSteps.length - 1])} steps)`;
+    return void p.append(
       h("section", { class: "method" },
         h("h3", {}, "What runs in your browser"),
-        h("p", {}, "The challenge's Python environment, flatland-rl 4.2.2 with the challenge's reward rules, ported to JavaScript line by line: the trains' acceleration and braking, the state machine, how conflicts between trains are resolved, the level-free crossings and every penalty. When the page opens, it simulates all three runs and scores them itself."),
+        h("p", {}, `The challenge's Python environment, flatland-rl 4.2.2 with the challenge's reward rules, ported to JavaScript line by line: the trains' acceleration and braking, the state machine, how conflicts between trains are resolved, the level-free crossings and every penalty. When the page opens, it simulates the ${nRuns} runs of ${map.name} and scores them itself.`),
         h("h3", {}, "How it is checked"),
-        h("p", {}, `The port was compared with the Python runner step by step: every train's position, direction, state, speed and reward at each of the ${count(ref.runs.baseline.steps)} steps, for all three runs, with no tolerance. The scores match to the last digit, and so does every line of the breakdown under Score: each penalty term was checked against the terms the Python reward function itself computes. Planted errors in the dynamics, the conflict rule, the map, a penalty or the breakdown are caught by the same comparison.`),
-        h("p", { class: "method-check" }, icon("check", 16), `Python ${ref.python}, flatland-rl ${ref.flatland}; scores ${RUNS.map((r) => `${r.label.toLowerCase()} ${score(ref.runs[r.id].reward)}`).join(", ")}.`),
+        h("p", {}, `The port was compared with the Python runner step by step: every train's position, direction, state, speed and reward ${stepsText}, with no tolerance. The scores match to the last digit, and so does every line of the breakdown under Score: each penalty term was checked against the terms the Python reward function itself computes. Planted errors in the dynamics, the conflict rule, the map, a penalty or the breakdown are caught by the same comparison.`),
+        h("p", { class: "method-check" }, icon("check", 16), `Python ${ref.python}, flatland-rl ${ref.flatland}; scores ${runList.map((r) => `${r.label.toLowerCase()} ${score(ref.runs[r.id].reward)}`).join(", ")}.`),
         h("h3", {}, "The runs"),
         h("ul", { class: "method-runs" }, runsInfo),
         h("h3", {}, "Reading the map"),
@@ -370,10 +388,33 @@ export function createPanel(root, ctx) {
           h("li", {}, h("strong", {}, "Late or early: "), `${amount(P.lateArrival)} per step late at a stop, ${amount(P.earlyDeparture)} per step leaving early, 1 per step late at the destination.`),
           h("li", {}, h("strong", {}, "Unfinished: "), `a train still on the map at the end loses its remaining delay; one that never left loses ${amount(P.cancellationFactor)} × (its travel time + ${amount(P.cancellationBuffer)}).`)),
         h("p", {}, "A collision is booked at once; a train's stops and its delay when it reaches its destination, or at the end for a train still on its way. So the score at a step lags behind what the map shows."),
-        h("p", {}, `Zero is out of reach on this map: ${plural(floor.perTrain.filter((v) => v > 0).length, "train")} can't keep their timetables even on empty track, at full speed and without halting, and lose at least ${amount(floor.total)} points between them. No dispatcher can score better than −${amount(floor.total)}.`),
+        h("p", {}, floorSentence()),
         h("h3", {}, "Limits"),
-        h("p", {}, `The two planners do not run in your browser: they ran in Python (the estimate's in a few seconds, the optimized run's in about two minutes), and the page replays the actions they gave each train. Malfunctions are off, as in the challenge's runner. The leaderboard's ${count(LEADERBOARD)} is a figure from the brief; the estimate is a reconstruction of the kind of solution that scores in that range, not the leaderboard entry's code.`),
-        h("p", { class: "muted" }, "The map is the challenge's data/maps/neufrankfurt_19agents.json, unchanged. Station names come from its line names; stations no line names stay numbered.")));
+        h("p", {}, limitsText()),
+        h("p", { class: "muted" }, `The map is the challenge's data/maps/${map.file}, unchanged. Station names come from its line names; stations no line names stay numbered.`)));
+
+    // Why zero is out of reach on this map (js/floor.js).
+    function floorSentence() {
+      const { atTarget, slow } = floorReasons(scenario, floor);
+      const best = `No dispatcher can score better than −${amount(floor.total)}.`;
+      const slowText = (more) => `${plural(slow.trains.length, more ? "more train" : "train")} can't keep their timetables even on empty track, at full speed and without halting`;
+      if (!atTarget.trains.length) return `Zero is out of reach on this map: ${slowText(false)}, and lose at least ${amount(slow.points)} points between them. ${best}`;
+      const first = `${plural(atTarget.trains.length, "train")} start on the cell that is their destination, so the simulator finishes them as they enter and their ${count(atTarget.stops)} stops are lost (${amount(atTarget.points)} points)`;
+      return slow.trains.length
+        ? `Zero is out of reach on this map: ${first}; ${slowText(true)} (at least ${amount(slow.points)} points). ${best}`
+        : `Zero is out of reach on this map: ${first}. ${best}`;
+    }
+
+    // What the page does not do: the planners ran in Python; the leaderboard's figure, where there is one.
+    function limitsText() {
+      const who = planned.length === 1 ? "The optimized run's planner does not run in your browser: it ran in Python" : `The ${inWords(planned.length).toLowerCase()} planners do not run in your browser: they ran in Python`;
+      const how = planned.length === 1 ? "and the page replays the actions it gave each train" : "and the page replays the actions they gave each train";
+      const time = planned.some((r) => r.id === "estimate") ? " (the estimate's in a few seconds, the optimized run's in a few minutes)" : " (a few minutes of search)";
+      const board = map.leaderboard !== null
+        ? ` The leaderboard's ${count(map.leaderboard)} is a figure from the brief; the estimate is a reconstruction of the kind of solution that scores in that range, not the leaderboard entry's code.`
+        : " The brief gives no leaderboard figure for this map.";
+      return `${who}${time}, ${how}. Malfunctions are off, as in the challenge's runner.${board}`;
+    }
   }
 
   // ---- state and refresh ---------------------------------------------------------------------------

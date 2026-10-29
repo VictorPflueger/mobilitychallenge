@@ -1,8 +1,7 @@
-// The three runs on screen, and the leaderboard's figure they are measured against. Plain words
-// for readers who do not know the challenge: what each dispatcher does, and how the page gets it.
-
-/** The leaderboard's current best on neufrankfurt_19agents, as the project brief gives it. */
-export const LEADERBOARD = -37374;
+// The runs the page shows, in plain words for readers who do not know the challenge: what each
+// dispatcher does, and how the page gets it. A map lists the ones recorded on it (js/maps.js): all
+// three on Neu-Frankfurt, the baseline and the optimized run on Köln. The leaderboard's figure, where
+// a map has one, is in js/maps.js.
 
 export const RUNS = [
   {
@@ -28,8 +27,8 @@ export const RUNS = [
     label: "Optimized",
     title: "Optimized: routes, stops and times planned",
     source: "plan",
-    does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and every train halts at all its stops, as close to its timetable as the track allows. Then it keeps improving the plan, a few trains at a time.",
-    how: "Planned in Python by PlannerController (about two minutes of search) and replayed here: your browser simulates and scores every step of it."
+    does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and trains halt at their stops as close to their timetables as the track allows. A train it finds no such plan for stays off the network. Then it keeps improving the plan, a few trains at a time.",
+    how: "Planned in Python by PlannerController (a few minutes of search) and replayed here: your browser simulates and scores every step of it."
   }
 ];
 

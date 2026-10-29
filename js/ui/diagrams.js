@@ -8,17 +8,18 @@
 import { h, svg } from "../dom.js";
 import { trackDrawing } from "../network.js";
 import { HEX, layoutLabels, stationBoxes, trainGlyph } from "./map.js";
+import { networkBox } from "../maps.js";
 
 /** Station names in the network drawing, on screen: 13 px, 11 px when the drawing is narrow. */
 const NAME_PX = 13;
 const NAME_PX_NARROW = 11;
 
-/** The whole network, small: tracks, platforms and the names of its stations. */
-export function networkDiagram(scenario, network) {
+/** The whole network of the map on screen, small: tracks, platforms and the names of its stations. */
+export function networkDiagram(scenario, network, map) {
   const rail = scenario.rail;
   const W = rail.width;
   const H = rail.height;
-  const box = [-1.5, -3.5, W + 3, H + 7];
+  const box = networkBox(rail, map);
   const drawing = trackDrawing(rail);
   const boxes = stationBoxes(rail, network);
   const occupied = new Uint8Array(W * H);
@@ -35,7 +36,7 @@ export function networkDiagram(scenario, network) {
     names.replaceChildren(...labels.map((l) => svg("text", { class: "station-label", x: l.x, y: l.y, "font-size": l.font, "text-anchor": l.anchor, "dominant-baseline": "central" }, l.text)));
   };
   name(560);
-  const el = svg("svg", { class: "diagram diagram-network", viewBox: box.join(" "), role: "img", "aria-label": `Map of the Neu-Frankfurt network: ${network.stations.length} stations on a grid of ${W} by ${H} cells` },
+  const el = svg("svg", { class: "diagram diagram-network", viewBox: box.join(" "), role: "img", "aria-label": `Map of the ${map.name} network: ${network.stations.length} stations on a grid of ${W} by ${H} cells` },
     svg("path", { class: "track", d: drawing.tracks, "vector-effect": "non-scaling-stroke" }),
     svg("path", { class: "buffer", d: drawing.buffers, "vector-effect": "non-scaling-stroke" }),
     boxes.map((b) => svg("rect", { class: "platform", x: b.x0 + 0.08, y: b.y0 + 0.08, width: b.x1 - b.x0 - 0.16, height: b.y1 - b.y0 - 0.16, rx: 0.12, "vector-effect": "non-scaling-stroke" })),

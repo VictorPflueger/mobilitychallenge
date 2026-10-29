@@ -5,7 +5,6 @@
 import { h, withTooltip } from "../dom.js";
 import { icon } from "../icons.js";
 import { count, score } from "../format.js";
-import { RUNS } from "../runs.js";
 
 export const SPEEDS = [
   { id: 1, label: "×1", stepsPerSecond: 8 },
@@ -13,11 +12,12 @@ export const SPEEDS = [
   { id: 16, label: "×16", stepsPerSecond: 128 }
 ];
 
-export function createControls(root, handlers) {
+/** runList: the runs of the map on screen (js/runs.js entries, in their order). */
+export function createControls(root, runList, handlers) {
   // Run switch.
   const runButtons = new Map();
-  const runSwitch = h("div", { class: "segmented run-switch", role: "group", "aria-label": "Run on screen" },
-    RUNS.map((r) => {
+  const runSwitch = h("div", { class: "segmented run-switch", role: "group", "aria-label": "Run on screen", dataset: { runs: String(runList.length) } },
+    runList.map((r) => {
       const scoreEl = h("span", { class: "run-score" }, "");
       const b = h("button", { type: "button", "aria-pressed": "false", dataset: { run: r.id } },
         h("span", { class: "run-swatch", "aria-hidden": "true" }), h("span", { class: "run-name" }, r.label), scoreEl);

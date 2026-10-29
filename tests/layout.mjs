@@ -6,7 +6,9 @@
 // 44 px for the main ones. Each viewport is checked at five moments of a run (the start of the
 // optimized run with its story, the baseline in its gridlock, the estimate with trains waiting at
 // their entry, the estimate at its end with a train's timetable open, and the view around the Hbf
-// with a train picked), then in each of the guide's seven chapters: the dialog inside the window,
+// with a train picked), and at four on Köln (its optimized run at the start, its baseline in the
+// gridlock, its optimized run with trains held off the network, the view around Stop 14 with a train
+// picked); then in each of the guide's seven chapters, on both maps: the dialog inside the window,
 // nothing in a chapter wider than the chapter (no sideways scrolling), its drawings' labels large
 // enough to read (10 px at least) and its buttons large enough to hit.
 // Usage: node tests/layout.mjs [viewport ...]   (e.g. 1280x720)
@@ -14,13 +16,19 @@ import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, ONLY, outDir } from "
 import path from "node:path";
 
 const VIEWPORTS = [[1920, 1080], [1600, 900], [1536, 864], [1366, 768], [1280, 720], [1024, 768], [768, 1024], [390, 844], [320, 640]];
+// mustName: a station whose name has to be on the map in that state.
 const STATES = [
-  { name: "optimized at the start, its story", url: "?run=optimized&step=0", situation: false },
-  { name: "baseline in its gridlock", url: "?run=baseline&step=600", situation: "Gridlock" },
-  { name: "estimate with trains waiting at their entry", url: "?run=estimate&step=100", situation: "wait at their entry" },
-  { name: "estimate at the end, a timetable open", url: "?run=estimate&step=1248", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="3"] .train-pick'); } },
-  { name: "around the Hbf, a train picked", url: "?run=baseline&step=700", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } }
+  { name: "optimized at the start, its story", url: "?run=optimized&step=0", situation: false, mustName: "Hbf" },
+  { name: "baseline in its gridlock", url: "?run=baseline&step=600", situation: "Gridlock", mustName: "Hbf" },
+  { name: "estimate with trains waiting at their entry", url: "?run=estimate&step=100", situation: "wait at their entry", mustName: "Hbf" },
+  { name: "estimate at the end, a timetable open", url: "?run=estimate&step=1248", mustName: "Hbf", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="3"] .train-pick'); } },
+  { name: "around the Hbf, a train picked", url: "?run=baseline&step=700", mustName: "Hbf", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } },
+  { name: "Köln, optimized at the start", url: "?map=koeln&run=optimized&step=0", situation: false, mustName: "Essen" },
+  { name: "Köln, baseline in its gridlock", url: "?map=koeln&run=baseline&step=600", situation: "Gridlock", mustName: "Essen" },
+  { name: "Köln, optimized with trains held off", url: "?map=koeln&run=optimized&step=600", situation: "wait at their entry", mustName: "Essen" },
+  { name: "Köln, around Stop 14, a train picked", url: "?map=koeln&run=baseline&step=150", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); await page.click("#tab-trains"); await page.click('tr[data-train="16"] .train-pick'); } }
 ];
+const GUIDES = [{ map: "frankfurt", url: "?run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }];
 
 const chosen = VIEWPORTS.filter(([w, h]) => !ONLY.length || ONLY.includes(`${w}x${h}`));
 const failures = [];
@@ -29,7 +37,7 @@ const browser = await launchBrowser();
 const server = await serveStatic(APP_ROOT, 8766);
 const shots = await outDir("layout");
 
-function inPage() {
+function inPage(mustName) {
   const rect = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
   const overlap = (a, b) => a && b && a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1;
   const vw = document.documentElement.clientWidth;
@@ -63,7 +71,7 @@ function inPage() {
   for (let i = 0; i < labels.length; i += 1) {
     for (let j = i + 1; j < labels.length; j += 1) if (overlap(labels[i], labels[j])) out.problems.push(`the station names "${labels[i].text}" and "${labels[j].text}" overlap`);
   }
-  if (!labels.some((a) => a.text === "Hbf")) out.problems.push("the Hauptbahnhof has no name on the map");
+  if (mustName && !labels.some((a) => a.text === mustName)) out.problems.push(`${mustName} has no name on the map`);
   // The step label: never cut, never under the slider.
   const step = document.querySelector("#step-label");
   const slider = rect("#timeline");
@@ -167,31 +175,35 @@ try {
       await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
       if (s.act) await s.act(page);
       await page.waitForTimeout(350);
-      const r = await page.evaluate(inPage);
+      const r = await page.evaluate(inPage, s.mustName || null);
       if (s.situation === false && r.situation) r.problems.push(`a situation line where none belongs ("${r.situation}")`);
       if (s.situation && !r.situation.includes(s.situation)) r.problems.push(`the situation line should say "${s.situation}" ("${r.situation}")`);
       for (const p of r.problems) { failures.push(`${w}×${h}, ${s.name}: ${p}`); bad += 1; }
       for (const p of r.small) { failures.push(`${w}×${h}, ${s.name}: target too small: ${p}`); bad += 1; }
       await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-${s.name.replace(/[^a-z0-9]+/gi, "-")}.png`) });
     }
-    // The guide, chapter by chapter.
-    await page.goto(server.base + "?run=optimized&step=0");
-    await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
-    await page.click("#btn-about");
-    await page.waitForSelector(".guide-modal", { timeout: 5000 });
-    const ids = await page.$$eval(".guide-nav-btn", (bs) => bs.map((b) => b.dataset.chapter));
+    // The guide, chapter by chapter, on each map.
     let smallest = Infinity;
-    for (const id of ids) {
-      await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
-      await page.waitForTimeout(150);
-      const g = await page.evaluate(inGuide);
-      if (g.chapter !== id) g.problems.push(`chapter ${id} did not open (${g.chapter})`);
-      smallest = Math.min(smallest, g.smallest);
-      for (const p of g.problems) { failures.push(`${w}×${h}, guide chapter ${id}: ${p}`); bad += 1; }
-      for (const p of g.small) { failures.push(`${w}×${h}, guide chapter ${id}: target too small: ${p}`); bad += 1; }
-      await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-guide-${id}.png`) });
+    let chapters = 0;
+    for (const guide of GUIDES) {
+      await page.goto(server.base + guide.url);
+      await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
+      await page.click("#btn-about");
+      await page.waitForSelector(".guide-modal", { timeout: 5000 });
+      const ids = await page.$$eval(".guide-nav-btn", (bs) => bs.map((b) => b.dataset.chapter));
+      chapters += ids.length;
+      for (const id of ids) {
+        await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
+        await page.waitForTimeout(150);
+        const g = await page.evaluate(inGuide);
+        if (g.chapter !== id) g.problems.push(`chapter ${id} did not open (${g.chapter})`);
+        smallest = Math.min(smallest, g.smallest);
+        for (const p of g.problems) { failures.push(`${w}×${h}, ${guide.map} guide chapter ${id}: ${p}`); bad += 1; }
+        for (const p of g.small) { failures.push(`${w}×${h}, ${guide.map} guide chapter ${id}: target too small: ${p}`); bad += 1; }
+        await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-${guide.map}-guide-${id}.png`) });
+      }
     }
-    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states, ${ids.length} chapters of the guide (smallest label ${smallest.toFixed(1)} px)${bad ? `, ${bad} problem(s)` : ""}`);
+    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states on both maps, ${chapters} chapters of the two guides (smallest label ${smallest.toFixed(1)} px)${bad ? `, ${bad} problem(s)` : ""}`);
     await context.close();
   }
 } finally {
@@ -204,4 +216,4 @@ if (failures.length) {
   console.log(`\n${[...new Set(failures)].map((f) => `✗ ${f}`).join("\n")}`);
   process.exit(1);
 }
-console.log(`\nScreenshots in ${shots}.\nLAYOUT_OK`);
+console.log(`\nScreenshots in ${shots}.\nLAYOUT_OK maps=frankfurt,koeln`);

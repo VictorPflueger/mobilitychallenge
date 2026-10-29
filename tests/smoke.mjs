@@ -1,6 +1,7 @@
-// Dispatch Lab in Chromium, end to end: the page boots over http, simulates the three runs itself,
-// shows their scores (and the Python runner's are the same), plays them back, and every control does
-// its job exactly once. No request leaves the page's own server, and no console error appears.
+// Dispatch Lab in Chromium, end to end: the page boots over http on Neu-Frankfurt, simulates its three
+// runs itself, shows their scores (and the Python runner's are the same), plays them back, and every
+// control does its job exactly once; the map switch does the same for Köln. No request leaves the
+// page's own server, and no console error appears.
 //   boot      scores in the run switch, the comparison and the KPI tiles; no external request
 //   playback  Play, Pause, speed, step buttons, the timeline, the end of a run
 //   runs      switching runs, their final figures, the address that remembers the moment
@@ -20,19 +21,21 @@
 //   motion    with reduced motion the trains jump from cell to cell (no animation between steps)
 //   failure   a missing data file ends on the boot screen with the reason; a score the Python
 //             runner did not compute raises a banner and loses its "same score" note
+//   maps      the map switch: Köln from the header and back, Köln's runs, scores, tiles, views,
+//             guide and story against the Python runner's; links to a map, a run and a step; an
+//             unknown map or a run the map does not have falls back
 // Usage: node tests/smoke.mjs [case ...]
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, wanted, NETWORK_NOISE } from "./lib/harness.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { traceFacts } from "./lib/trace-facts.mjs";
+import { fixturePath, referencePath } from "./lib/maps.mjs";
 
-const reference = JSON.parse(readFileSync(path.join(APP_ROOT, "data/reference.json"), "utf8"));
+const reference = JSON.parse(readFileSync(path.join(APP_ROOT, referencePath("frankfurt")), "utf8"));
 const results = [];
 const check = (ok, what) => { results.push([ok, what]); if (!ok) console.log(`FAIL  ${what}`); };
-const fmt = (v) => {
-  const r = Math.round(v * 10) / 10;
-  return new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(r).replace("-", "−");
-};
+// a score to one decimal, halves away from zero, as the page and Python's reports round it
+const fmt = (v) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v).replace("-", "−");
 
 const browser = await launchBrowser();
 const server = await serveStatic(APP_ROOT, 8765);
@@ -453,18 +456,18 @@ try {
   }
 
   if (wanted("failure")) {
-    server.blockLocal.add("/data/reference.json");
+    server.blockLocal.add("/data/frankfurt/reference.json");
     const { context, page } = await open();
     await page.waitForSelector('#boot[data-state="failed"]', { timeout: 20000 });
     const detail = await text(page, "#boot-detail");
     check(/reference\.json: HTTP 404/.test(detail) && await page.isVisible(".boot-help"), `failure: a missing data file ends on the boot screen with the reason (${detail})`);
-    server.blockLocal.delete("/data/reference.json");
+    server.blockLocal.delete("/data/frankfurt/reference.json");
     await context.close();
     // A Python score the engine does not reproduce: the page says so instead of claiming a match.
     const wrong = await open();
     const altered = JSON.parse(JSON.stringify(reference));
     altered.runs.estimate.reward += 1;
-    await wrong.context.route(/\/data\/reference\.json$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(altered) }));
+    await wrong.context.route(/\/data\/frankfurt\/reference\.json$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(altered) }));
     await wrong.page.reload();
     await ready(wrong.page);
     await wrong.page.click("#tab-score");
@@ -474,6 +477,82 @@ try {
     check(banner && /differs from the Python runner/.test(bannerText), `failure: a score that differs from the Python runner's raises a banner (${bannerText.slice(0, 60)})`);
     check(notes.length === 2 && !notes.includes("estimate"), `failure: the estimate then loses "same score as the Python runner" (${notes.join(", ")})`);
     await wrong.context.close();
+  }
+  if (wanted("maps")) {
+    const kRef = JSON.parse(readFileSync(path.join(APP_ROOT, referencePath("koeln")), "utf8"));
+    const kRules = JSON.parse(readFileSync(path.join(APP_ROOT, fixturePath("koeln", "rules.json")), "utf8"));
+    const before = results.length;
+    const { context, page, errors, external } = await open();
+    await ready(page);
+    const buttons = await page.$$eval("#map-switch button", (bs) => bs.map((b) => [b.dataset.map, b.textContent, b.getAttribute("aria-pressed")]));
+    check(JSON.stringify(buttons) === JSON.stringify([["frankfurt", "Neu-Frankfurt", "true"], ["koeln", "Köln", "false"]]), `maps: the header offers Neu-Frankfurt (on screen) and Köln (${JSON.stringify(buttons)})`);
+    // Köln from the header: its page loads with the run on screen kept.
+    await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
+    await ready(page);
+    const url = new URL(page.url());
+    check(url.searchParams.get("map") === "koeln" && url.searchParams.get("run") === "optimized", `maps: Köln loads its own page, keeping the optimized run (${url.search})`);
+    const k = await page.evaluate(() => ({ map: window.dispatchLab.map, runs: Object.fromEntries([...window.dispatchLab.runs].map(([id, r]) => [id, { score: r.score, steps: r.steps }])) }));
+    check(k.map === "koeln" && JSON.stringify(Object.keys(k.runs)) === JSON.stringify(["baseline", "optimized"]), `maps: Köln has its two runs, the baseline and the optimized run (${Object.keys(k.runs).join(", ")})`);
+    for (const id of ["baseline", "optimized"]) {
+      check(k.runs[id].score === kRef.runs[id].reward && k.runs[id].steps === kRef.runs[id].steps, `maps: Köln's ${id} scores ${k.runs[id].score} in ${k.runs[id].steps} steps in the browser; the Python runner ${kRef.runs[id].reward} in ${kRef.runs[id].steps}`);
+      const shown = await text(page, `.run-switch button[data-run="${id}"] .run-score`);
+      check(shown === fmt(kRef.runs[id].reward), `maps: the run switch shows Köln's ${id} as ${shown}`);
+    }
+    check(await page.getAttribute('#map-switch button[data-map="koeln"]', "aria-pressed") === "true" && (await text(page, "#brand-sub")).endsWith("Köln, 36 trains"), `maps: the header marks Köln and says so (${await text(page, "#brand-sub")})`);
+    check((await page.$$(".run-switch button")).length === 2 && !(await page.$('.run-switch button[data-run="estimate"]')), "maps: no estimate on Köln");
+    const floorGap = kRef.runs.optimized.reward + kRules.floor.total;
+    check(await text(page, ".kpi:has(#kpi-best-value) .kpi-label") === "Final vs. best possible" && await text(page, "#kpi-best-value") === fmt(floorGap), `maps: Köln's tile measures the run against the best possible score, −${kRules.floor.total} (${await text(page, "#kpi-best-value")})`);
+    await page.click("#tab-score");
+    const rows = await page.$$eval(".compare-row", (l) => l.map((r) => r.dataset.run));
+    check(JSON.stringify(rows) === JSON.stringify(["baseline", "optimized"]) && (await text(page, ".compare .vc-chart__title")) === "Two scores on the same scenario", `maps: Köln's scores compared, no leaderboard figure (${rows.join(", ")})`);
+    check((await page.$$(".compare-note.verified")).length === 2, "maps: both Köln runs carry 'same score as the Python runner'");
+    const before0 = await page.getAttribute(".map-svg", "viewBox");
+    await page.click('.map-views button:has-text("Around Stop 14")');
+    check(await page.getAttribute(".map-svg", "viewBox") !== before0, "maps: Köln's middle view zooms in around Stop 14");
+    await page.click('.map-views button:has-text("Whole network")');
+    const labels = await page.$$eval(".map-labels .station-label", (l) => l.map((x) => x.textContent));
+    check(["Essen", "Frankfurt"].every((n) => labels.includes(n)), `maps: Köln's map names its stations (${labels.join(", ")})`);
+    await page.click("#tab-method");
+    check((await text(page, "#panel-method")).includes("data/maps/kk_36agents.json"), "maps: the method names Köln's file");
+    // The guide on Köln: Köln's figures and its two results, and Watch plays the run.
+    await page.click("#btn-about");
+    await page.waitForSelector(".guide-modal");
+    check((await text(page, ".guide-title")).includes("36 trains"), `maps: the guide on Köln starts with its 36 trains (${await text(page, ".guide-title")})`);
+    await page.click('.guide-nav-btn[data-chapter="results"]');
+    const cards = await page.$$eval(".guide-result", (l) => l.map((x) => [x.dataset.run, x.querySelector(".guide-result-score").textContent]));
+    check(JSON.stringify(cards) === JSON.stringify([["baseline", fmt(kRef.runs.baseline.reward)], ["optimized", fmt(kRef.runs.optimized.reward)]]), `maps: the guide's results on Köln are its two runs with the Python runner's scores (${cards.map((c) => c.join(" ")).join(", ")})`);
+    await page.click('.guide-watch[data-run="baseline"]');
+    await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
+    check((await text(page, "#map-run")).startsWith("Baseline") && await text(page, ".status-pill .text") === "Playing", "maps: Watch the gridlock plays Köln's baseline");
+    await page.click("#btn-play");
+    // Köln's story: a train done the moment it enters, then the gridlock.
+    const kb = traceFacts("baseline", null, "koeln");
+    await page.click('.moment[data-kind="at-target"]');
+    check(await stepOnScreen(page) === Math.min(...kb.atTarget.map((i) => kb.arrival[i])), `maps: the story's "Done before it moves" jumps to step ${await stepOnScreen(page)}`);
+    await page.click('.moment[data-kind="gridlock"]');
+    check(await text(page, "#map-situation .sit-long") === `Gridlock since step ${kb.gridlockFrom}: ${kb.stuck} trains stuck for good`, `maps: on Köln the map says when it jams (${await text(page, "#map-situation .sit-long")})`);
+    check(!errors.length, `maps: no console errors on Köln (${errors.join(" | ")})`);
+    check(!external.length, `maps: no request left the site (${external.join(", ")})`);
+    // Back to Neu-Frankfurt: the default map needs no parameter, and the run stays.
+    await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="frankfurt"]')]);
+    await ready(page);
+    const back = new URL(page.url());
+    check(!back.searchParams.has("map") && back.searchParams.get("run") === "baseline" && await page.evaluate(() => window.dispatchLab.map) === "frankfurt" && (await text(page, "#map-run")).startsWith("Baseline"), `maps: Neu-Frankfurt from the header, with the baseline kept (${back.search})`);
+    await context.close();
+    // Links: a map, a run and a step; a run the map does not have; an unknown map.
+    const link = await open({ url: "?map=koeln&run=baseline&step=400" });
+    await ready(link.page);
+    check(await link.page.evaluate(() => window.dispatchLab.map) === "koeln" && (await text(link.page, "#map-run")).startsWith("Baseline") && await stepOnScreen(link.page) === 400, "maps: a link opens Köln's baseline at step 400");
+    await link.context.close();
+    const noEst = await open({ url: "?map=koeln&run=estimate" });
+    await ready(noEst.page);
+    check((await text(noEst.page, "#map-run")).startsWith("Optimized"), "maps: a run Köln does not have opens its optimized run instead");
+    await noEst.context.close();
+    const unknown = await open({ url: "?map=atlantis" });
+    await ready(unknown.page);
+    check(await unknown.page.evaluate(() => window.dispatchLab.map) === "frankfurt", "maps: an unknown map opens Neu-Frankfurt");
+    await unknown.context.close();
+    if (results.slice(before).every(([ok]) => ok)) console.log("MAPS_SWITCH_OK");
   }
 } finally {
   await server.close();
