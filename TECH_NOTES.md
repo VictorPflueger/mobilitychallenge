@@ -54,6 +54,16 @@ Matching flatland's floats to the last digit needed CPython's own behaviour in t
   - `tools/check_estimate.py` runs the planner through the challenge's runner, checks after every step that every train is where its booking says, that every train arrives at its planned step, and that the actions equal `data/estimate_actions.json`.
 - **Optimized**: `PlannerController(n_orders=1, lns_iters=40, seed=2)` with the full observation (`FullEnvObservation`) plans every train through its stops in time and space before the first step, then improves the plan by large-neighbourhood search; about two minutes in Python. Its 597 steps of actions are in `data/planner_actions.json`; `replay.js` hands them to the engine, which simulates and scores them like any other run. `tools/check_plan.py` reruns the planner and compares the actions.
 
+## 4a. The floor (`js/floor.js`, `tools/score_floor.py`)
+
+The best score any dispatcher can reach on the map, bounded from below. For each train, a breadth-first search from its start over (cell, direction), never through its destination, gives the fewest moves to a platform of each timetabled stop and to the destination. A train is on the map at the earliest at step max(earliest departure, 1) + 1 and moves at most one cell every 1 / speed steps; halting, detours and other trains only add time, and a train that never arrives or never sets off pays more than a late one. A stop reached L steps after its latest arrival costs at least 0.5 × L (or the lost stop's 499.2, whichever is less), the destination L steps late costs L. The sum is 944: only the two S-Bahns of the airport loop are bound to be late (217 cells at two steps each, against a window of 267 steps), at least 472 points each.
+
+`tools/score_floor.py` computes it on flatland's own rail (`get_transitions`, `get_new_position`, the agents' waypoints and latest arrivals); `tools/export_fixtures.py` writes it to `tests/fixtures/rules.json` and asserts that the two timing assumptions hold in all three recorded runs (no train on the map before max(earliest departure, 1) + 1, no move sooner than 1 / speed steps after the last). `js/floor.js` computes the same in the browser; `tests/guide.mjs` compares the two train by train, and a planted error in the browser's entry step is caught.
+
+## 4b. When penalties are booked
+
+`DefaultRewards.step_reward` books a collision when a moving train is brought to a halt without a stop action (936 × its speed at that moment, so a train already standing costs nothing more). A train's stops (served, late, early or lost) and its delay at the destination are booked by `_agent_done_or_max_episode_steps_reward` in the step it arrives, or at the end of the episode for a train still on its way or never started. The running score therefore lags behind what the map shows; the guide, the Score tab and the Method say so, and `tests/guide.mjs` checks the rule on every term of the three Python runs.
+
 ## 5. What the page adds on top (`js/sim.js`)
 
 `simulate()` runs a controller through the engine once and keeps, for every step, each train's cell, direction, state, speed, whether it was blocked, how late it is and how long it has stood still; the running score per step and per train; every reward term (the engine's optional ledger, which changes no computation); the timetable as run; and the events. Everything on screen reads from that record, so scrubbing the timeline costs nothing.
@@ -81,5 +91,5 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 | `tests/engine.mjs` | baseline 1,248 steps, estimate 1,043, optimized 597: every value identical; scores −74,022.59999999998, −32,488.800000000007, −1,014; distance maps identical; 122, 78 and 137 reward terms identical; 4,000 sums, 3,000 set orders and 10 roundings identical |
 | `tests/engine-negctl.mjs` | 14 planted errors, all caught; the unchanged engine passes |
 | `tests/data.mjs` | the site's map is the challenge's byte for byte; both plans, the scores and the traces recorded on it |
-| `tests/story.mjs`, `tests/guide.mjs` | every figure and moment of the Story tab and the guide agrees with the Python traces, the scenario and the rules |
+| `tests/story.mjs`, `tests/guide.mjs` | every figure and moment of the Story tab and the guide agrees with the Python traces, the scenario and the rules; the floor (−944) is the same in the browser and on flatland's rail |
 | Browser suites | smoke (main flows, guide, story), layout (9 viewports × 5 states and the guide's 7 chapters), hexagon (both themes, the guide included), tokens (both themes), page icon, Vici's files: all pass |

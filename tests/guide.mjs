@@ -1,7 +1,10 @@
 // The guide's figures against their sources: the scenario file (trains, kinds and speeds, stations,
-// stops, grid, crossings, the example timetable), the challenge's penalty rules as its own Python
-// code sets them (tests/fixtures/rules.json) and the runs as the Python runner traced them
-// (tests/lib/trace-facts.mjs). Each figure must also appear in the guide's text as stated.
+// stops, grid, crossings, the example timetable and its line), the challenge's penalty rules as its
+// own Python code sets them and the floor no dispatcher can beat, computed on flatland's own rail
+// (tests/fixtures/rules.json, written by tools/export_fixtures.py and tools/score_floor.py), and the
+// runs as the Python runner traced them (tests/lib/trace-facts.mjs): when each penalty is booked,
+// trains turning round at the Hauptbahnhof. Each figure must also appear in the guide's text as
+// stated.
 // Usage: node tests/guide.mjs
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
@@ -51,7 +54,11 @@ const lineNames = data.lines.map((l) => l.name.toLowerCase()).join(" ");
 const named = network.stations.filter((s) => !s.name.startsWith("Stop "));
 const fromLines = named.filter((s) => s.name === "Hauptbahnhof" ? /hbf/.test(lineNames) : lineNames.includes(s.name.split(" ")[0].toLowerCase().slice(0, 4)));
 check(fromLines.length === named.length, `every named station is named after a line (${named.map((s) => s.name).join(", ")})`);
-says(`${named.length - 1} more named stations and ${stationIds.length - named.length} numbered stops`, "named and numbered stations");
+says(`${named.length - 1} more named stations and ${stationIds.length - named.length} smaller ones without a name`, "named and numbered stations");
+const numbered = network.stations.filter((st) => st.name.startsWith("Stop "));
+check(numbered.every((st) => st.name === `Stop ${st.id}` && data.stations.some((x) => x.id === st.id)), "every station without a name is labelled by its number in the scenario file");
+const nums = numbered.map((st) => st.id).sort((x, y) => x - y);
+says(`(Stop ${nums[0]} to Stop ${nums[nums.length - 1]})`, "the numbered stations' range");
 const stops = data["flatland line"].agent_positions.reduce((s, p) => s + p.length - 1, 0);
 check(F.stops === stops, `stops: ${F.stops} (file ${stops})`);
 says(`${stops} stops to serve`, "the number of stops");
@@ -62,11 +69,15 @@ says(`${data.overpasses.length} times in Neu-Frankfurt`, "level-free crossings")
 check(F.steps === data["flatland timetable"].max_episode_steps, `steps: ${F.steps}`);
 says(`after ${fmt(data["flatland timetable"].max_episode_steps)} steps`, "the episode's length");
 
-// The example timetable, row by row, from the file.
+// The example timetable, row by row, from the file; its name, read from its line.
 const ex = F.example;
 const tt = data["flatland timetable"];
 const sched = data.schedules[ex.train];
 check(ex.name === sched.name.replace(/_/g, " "), `the example is ${ex.name}`);
+const line = data.lines.find((l) => l.id === sched.lineId);
+const [from, to] = [line.name.split("-")[0], line.name.split("-").slice(-1)[0]];
+check(ex.rows[0].station === from && ex.rows[ex.rows.length - 1].station === to, `the example runs on the line ${line.name}, from ${from} to ${to}`);
+says(`${ex.name} is a regional train from ${from} to ${to}`, "the example's name explained");
 ex.rows.forEach((r, k) => {
   const la = k === 0 ? null : tt.latest_arrivals[ex.train][k];
   const ed = k === ex.rows.length - 1 ? null : tt.earliest_departures[ex.train][k];
@@ -88,6 +99,45 @@ for (const [what, mine, theirs, stated] of pairs) {
   if (stated) says(stated, what);
 }
 says(`${rules.target_late_per_step} per step`, "late at the destination");
+says(`a lost stop, for example, costs ${fmt(P.intermediate_not_served_penalty / rules.max_episode_steps, 1)} × ${fmt(rules.max_episode_steps)} = ${fmt(P.intermediate_not_served_penalty, 1)} points`, "the penalties' scale");
+says(`every step later costs ${P.intermediate_late_arrival_penalty_factor} points, ${rules.target_late_per_step} at the destination`, "lateness beside the timetable");
+says(`every step earlier costs ${P.intermediate_early_departure_penalty_factor}`, "early departure beside the timetable");
+
+// The floor: the page's own computation (js/floor.js) against flatland's rail (tools/score_floor.py).
+check(Math.abs(F.floor.total - rules.floor.total) < 1e-9 && F.floor.perTrain.every((v, i) => Math.abs(v - rules.floor.per_train[i]) < 1e-9),
+  `the floor: the page's ${F.floor.total} (${F.floor.perTrain.filter((v) => v).join(" + ")}) equals flatland's ${rules.floor.total}`);
+const slowest = rules.floor.per_train.map((v, i) => ({ v, i })).filter((x) => x.v > 0);
+check(slowest.length === 2 && slowest.every((x) => classes.get(data.schedules[x.i].trainClassId).name === "S-Bahn"), `only two trains, both S-Bahns, are bound to lose points (${slowest.map((x) => data.schedules[x.i].name).join(", ")})`);
+says(`each loses at least ${fmt(Math.min(...slowest.map((x) => x.v)))} points`, "each slow S-Bahn's least loss");
+says(`No dispatcher can score better than −${fmt(rules.floor.total)}`, "the floor");
+check(-py.optimized.score >= rules.floor.total, `the optimized run (${py.optimized.score}) does not beat the floor (−${rules.floor.total})`);
+for (const x of slowest) check(-py.optimized.perTrain[x.i] >= x.v, `${data.schedules[x.i].name} loses ${-py.optimized.perTrain[x.i]} in the optimized run, at least its floor ${x.v}`);
+
+// When points count: a collision at once, a train's stops and delay when it arrives (or at the end).
+for (const name of ["baseline", "estimate", "optimized"]) {
+  const fx = readJson(`tests/fixtures/trace_${name}.json`);
+  const f = py[name];
+  const wrong = fx.terms.filter(([step, agent, kind]) => kind !== "collision" && step !== (f.arrival[agent] ?? f.steps));
+  const late = fx.terms.filter(([step, agent, kind]) => kind === "collision" && f.arrival[agent] !== null && step > f.arrival[agent]);
+  check(!wrong.length && !late.length, `${name}: every stop and delay term is booked at its train's arrival or at the end, collisions on the way (${wrong.length + late.length} exceptions)`);
+}
+says("A collision counts at once. A train's stops and its delay count when it reaches its destination, or when the episode ends", "when points count");
+
+// The Hauptbahnhof is a terminus: trains that call there turn round on its platforms.
+const hbf = new Set(data.stations.filter((x) => x.id === 1).map((x) => `${x.r},${x.c}`));
+const turners = new Set();
+for (const name of ["baseline", "estimate", "optimized"]) {
+  const fx = readJson(`tests/fixtures/trace_${name}.json`);
+  const rows = [fx.initial, ...fx.trace];
+  for (let t = 1; t < rows.length; t += 1) {
+    rows[t].pos.forEach((p, i) => {
+      const q = rows[t - 1].pos[i];
+      if (p && q && (hbf.has(`${p[0]},${p[1]}`) || hbf.has(`${q[0]},${q[1]}`)) && (rows[t].dir[i] - rows[t - 1].dir[i] + 4) % 4 === 2) turners.add(i);
+    });
+  }
+}
+check(turners.size >= 5, `trains turn round on the Hauptbahnhof's platforms in the Python runs (${turners.size} trains)`);
+says("the Hauptbahnhof is a terminus, so trains that call there reverse", "reversing at the Hbf");
 says(`serves none of the ${stops} stops still loses ${fmt(stops * P.intermediate_not_served_penalty, 1)} points`, "all stops lost");
 says(`${fmt(Math.round(P.intermediate_not_served_penalty))} steps late`, "a stop against a late arrival");
 says(fmt(-37374), "the leaderboard's best");

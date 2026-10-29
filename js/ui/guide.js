@@ -27,7 +27,7 @@ const COMMANDS = [
   { icon: "arrowUp", name: "Forward", text: "Keep straight on and speed up." },
   { icon: "turnLeft", name: "Left", text: "At a switch, take the left branch." },
   { icon: "turnRight", name: "Right", text: "At a switch, take the right branch." },
-  { icon: "stop", name: "Stop", text: "Brake to a halt (trains slow down over a few steps)." },
+  { icon: "stop", name: "Stop moving", text: "Brake to a halt (it takes a step or two)." },
   { icon: "more", name: "Do nothing", text: "Carry on as before: moving on, or standing still." }
 ];
 
@@ -97,7 +97,7 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
         case "conflicts":
           return h("ul", { class: "guide-scenes" }, conflictScenes().map((s) =>
             h("li", { dataset: { scene: s.id } }, s.drawing, h("strong", {}, s.title),
-              h("p", {}, s.text, s.id === "taken" ? ` It costs ${Math.round(bk.crash)} points at full speed.` : ""))));
+              h("p", {}, s.text, s.id === "taken" ? ` It costs ${Math.round(bk.crash)} × the train's speed: ${Math.round(bk.crash)} points at full speed.` : ""))));
         case "penalties":
           return h("table", { class: "vc-table vc-table--compact guide-penalties" },
             h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Penalty"), h("th", { scope: "col" }, "When"), h("th", { scope: "col", class: "num" }, "Points"))),

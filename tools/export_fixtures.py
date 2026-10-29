@@ -15,6 +15,10 @@ and the score breakdown the page shows, with flatland number for number.
   optimized  the actions in data/planner_actions.json (PlannerController's plan, see check_plan.py),
              replayed by a controller that never sees the environment
 
+It also writes tests/fixtures/rules.json: the penalties as the challenge's own code scales them, and
+the floor no dispatcher can beat (tools/score_floor.py), after checking the timing that floor assumes
+in all three runs.
+
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
   <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>           write tests/fixtures/
   <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check   rebuild and compare
@@ -324,13 +328,27 @@ def main():
             open(ref_path, 'w').write(json.dumps(ref, indent=1))
             print('wrote data/reference.json')
     # tests/fixtures/rules.json: the penalties as the challenge's own code sets them for this map
-    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), which
-    # tests/guide.mjs compares with the figures the guide states.
+    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), and the
+    # floor no dispatcher can beat (tools/score_floor.py, on flatland's own rail), which
+    # tests/guide.mjs compares with the figures the guide states. The floor's timing assumptions
+    # must hold in every recorded run.
     from scaled_penalties import get_scaled_penalties
+    import scenario_loader
+    from score_floor import score_floor, timing_holds
     max_steps = json.load(open(MAP))['flatland timetable']['max_episode_steps']
+    balanced = get_scaled_penalties(max_steps, profile='balanced')
+    env = scenario_loader.load(MAP, use_malfunctions=False)
+    env.reset()
+    floor = score_floor(env, balanced)
+    for scenario, data in results.items():
+        problems = timing_holds(env, [data['initial']] + data['trace'])
+        assert not problems, (scenario, problems[:5])
+    print(f'floor: no dispatcher can score better than -{sum(floor)} '
+          f'(the timing it assumes holds in the {", ".join(results)} run{"s" if len(results) > 1 else ""})')
     rules = {'map': os.path.basename(MAP), 'max_episode_steps': max_steps,
-             'balanced': get_scaled_penalties(max_steps, profile='balanced'),
-             'target_late_per_step': 1}
+             'balanced': balanced,
+             'target_late_per_step': 1,
+             'floor': {'per_train': floor, 'total': sum(floor)}}
     rules_path = os.path.join(out_dir, 'rules.json')
     if args.check:
         same = os.path.exists(rules_path) and json.load(open(rules_path)) == json.loads(json.dumps(rules))

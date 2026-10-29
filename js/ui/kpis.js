@@ -19,7 +19,7 @@ export function createKpis(container) {
   };
   const tiles = {
     score: make("score", "Score"),
-    best: make("best", "Against the best"),
+    best: make("best", "Final vs. the best"),
     trains: make("trains", "Trains arrived"),
     stops: make("stops", "Stops served")
   };
@@ -38,7 +38,7 @@ export function createKpis(container) {
     set(tiles.score, score(f.total[t]), last ? "" : "", last ? `final, after ${count(run.steps)} steps` : `at step ${count(t)}; final ${score(run.score)}`);
 
     const diff = run.score - LEADERBOARD;
-    set(tiles.best, signed(diff), diff > 0 ? "resolved" : "affected", `final ${score(run.score)} vs ${count(LEADERBOARD)}`);
+    set(tiles.best, signed(diff), diff > 0 ? "resolved" : "affected", `${score(run.score)} vs ${count(LEADERBOARD)}`);
 
     let arrived = 0;
     let onTime = 0;

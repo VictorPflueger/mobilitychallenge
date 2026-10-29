@@ -144,7 +144,7 @@ export function conflictScenes() {
     {
       id: "taken", title: "Cell taken",
       drawing: scene([{ x: 25, y: 10, tone: "blocked" }, { x: 35, y: 10, motion: "standing" }], [{ d: "M31 7 L33 10 L31 13", blocked: true }]),
-      text: "The cell ahead is taken: the simulator holds the moving train back. That counts as a collision."
+      text: "The cell ahead is taken: the simulator holds the moving train back. Nothing crashes, but the challenge counts it as a collision."
     },
     {
       id: "deadlock", title: "Head to head",

@@ -12,7 +12,7 @@ Static website on the `gh-pages` branch, no backend, no build step, nothing load
 
 ## What it shows
 
-**The guide**, in seven short chapters: the challenge (19 trains through a busy rail hub, on time), the network (a railway made of grid cells, with the real map drawn small), the timetables (every train has a window at each station, with a real example), the decisions (one command per train per step, and what happens when trains meet), the score (the penalties and what they cost, as the challenge's code sets them), the four results, and how to read the page. Every figure in it is computed from the scenario, the challenge's rules or the runs, and checked against them (`tests/guide.mjs`).
+**The guide**, in seven short chapters: the challenge (19 trains through a busy rail hub, on time, for as few penalty points as possible), the network (a railway made of grid cells, with the real map drawn small), the timetables (every train has a window at each station, with a real example), the decisions (one command per train per step, and what happens when trains meet), the score (the penalties and what they cost, as the challenge's code sets them, when they count, and the best score any dispatcher can reach here), the four results, and how to read the page. Every figure in it is computed from the scenario, the challenge's rules or the runs, and checked against them (`tests/guide.mjs`).
 
 **Four scores** on the same scenario. The score is the sum of penalties, so zero is perfect.
 
@@ -22,6 +22,8 @@ Static website on the `gh-pages` branch, no backend, no build step, nothing load
 | Current best | −37,374 | The leaderboard's figure, from the brief. Its code is not public, so it is not simulated here | — | — |
 | Estimate | −32,488.8 | A solution in the leaderboard's range: each train's route is booked in advance, in the order of their departures, so no two trains ever meet; a train waits at its entry until its whole route is free, and drives through its stations without halting. Every train arrives, no collision, but all 59 stops are lost. Claude's reconstruction, labelled as AI-made on the page | 19 / 19 | 0 / 59 |
 | Optimized | −1,014.0 | `PlannerController`: plans every train through all its stops in time and space before the first step, so no two trains ever want the same cell, then improves the plan train group by train group | 19 / 19 | 59 / 59 |
+
+**No dispatcher can score better than −944 on this map.** The two S-Bahns of the airport loop (S FF Hbf FF 1 and 2) cannot keep their timetables even on empty track, at full speed and without halting: each reaches its stops and its destination too late to lose fewer than 472 points. `tools/score_floor.py` computes this bound on flatland's own rail (and checks the timing it assumes in all three recorded runs), `js/floor.js` computes it in the browser, and `tests/guide.mjs` holds the two together. The optimized run is 70 points above the bound.
 
 Where the points go, as the Score tab breaks them down (checked term by term against the Python reward function):
 
@@ -92,7 +94,7 @@ git worktree add ../mobilitychallenge-pages gh-pages
 - **The score's terms.** The exporter also splits every reward the reward function hands out into its terms (a crash, a stop not served, a delay, …), asserting that they add up to exactly what the function returned; the page's breakdown must list the same terms in the same order.
 - **Negative controls.** `tests/engine-negctl.mjs` plants small errors (braking 0.4 instead of 0.5, the higher index winning a conflict, a crash penalty of 935, one action of a plan changed, one train of the estimate entering a step early, a term booked under the wrong heading, …); the checks must catch every one.
 - **The plans.** `tools/check_estimate.py` runs the estimate's planner through the challenge's runner, checks after every step that each train is exactly where its booked route says, and compares its actions with `data/estimate_actions.json`. `tools/check_plan.py` does the same for `PlannerController` and `data/planner_actions.json`; it needs the planner's two files in the challenge checkout's `src/controller/`, which are not part of this repository.
-- **The words.** `tests/story.mjs` holds every figure and moment of the Story tab and the map's situation line against facts worked out from the Python traces alone (arrivals, collisions, the gridlock's first step, stops served and passed, the longest wait); `tests/guide.mjs` holds every figure in the guide against the scenario file, the penalties as the challenge's own code sets them and the same traces.
+- **The words.** `tests/story.mjs` holds every figure and moment of the Story tab and the map's situation line against facts worked out from the Python traces alone (arrivals, collisions, the gridlock's first step, stops served and passed, the longest wait); `tests/guide.mjs` holds every figure in the guide against the scenario file, the penalties as the challenge's own code sets them, the floor as `tools/score_floor.py` computes it on flatland's rail, and the same traces (when each penalty is booked, trains turning round at the Hauptbahnhof).
 - **The page.** Chromium suites (Playwright) for the main flows, the guide and the Story tab, every viewport from 1920 × 1080 to 320 × 640 (the guide's seven chapters at each, its drawings' words 10 px or larger), contrast in both themes, Vici's files and its hexagon rule (nothing round).
 
 ## Files
@@ -101,13 +103,15 @@ git worktree add ../mobilitychallenge-pages gh-pages
 index.html, favicon.svg, .nojekyll   the page (strict Content Security Policy: everything from this site)
 css/            style.css (shell), components.css, map.css, panel.css, modals.css, guide.css
 js/             main.js (start, playback), sim.js, network.js (names, track drawing), runs.js,
-                story.js (a run's facts, moments, situation), guide-content.js (the guide's text), format.js
+                story.js (a run's facts, moments, situation), guide-content.js (the guide's text),
+                floor.js (the best score any dispatcher can reach), format.js
 js/engine/      env.js, rail.js, motion.js, py.js
 js/controllers/ ordered.js, replay.js
 js/ui/          map.js, kpis.js, controls.js, panel.js, charts.js, guide.js, diagrams.js, ailabel.js
 data/           the map, the two plans, the Python scores
 vici/           Vici v1.0.0, unchanged (tests/vici-files.mjs)
-tools/          export_fixtures.py, estimate_planner.py (the estimate), check_estimate.py, check_plan.py
+tools/          export_fixtures.py, estimate_planner.py (the estimate), check_estimate.py, check_plan.py,
+                score_floor.py (the floor, on flatland's rail)
 tests/          the checks, and fixtures/ (the Python traces and the rules, used by the tests only)
 DESIGN.md       colour grammar, layout, deviations from Vici and Rebate Hunter
 TECH_NOTES.md   the engine port, Python semantics, the estimate's planner, verification log

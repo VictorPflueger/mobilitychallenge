@@ -19,7 +19,7 @@ export const RUNS = [
     title: "Estimate: routes booked, stations skipped",
     source: "plan",
     ai: true,
-    does: "Claude's reconstruction of a solution at the level of the leaderboard's best. A planner books each train's whole route before letting it in, so no two trains ever meet. The route leads through all the train's stations, but the train never halts there.",
+    does: "Claude's guess at the kind of strategy behind the leaderboard's best. A planner books each train's whole route before letting it in, so no two trains ever meet. The route leads through all the train's stations, but the train never halts there.",
     how: "Planned in Python by EstimatePlanner and replayed here: your browser simulates and scores every step of it.",
     why: { wait: "its whole route is free" }
   },
@@ -40,6 +40,6 @@ export const ESTIMATE_NOTE = {
   title: "Claude's reconstruction",
   text: [
     "The leaderboard's −37,374 comes from code that is not public. Claude rebuilt the kind of solution that scores in that range: every train gets through without ever meeting another, but no train halts at its stations, and each of those stops costs 499.2 points.",
-    "The planner and the score are real: the engine simulates and scores its actions like any other run. That the leaderboard entry looks like this is the estimate."
+    "It guesses the strategy, not the exact score. The planner and its score are real: the engine simulates and scores its actions like any other run. That the leaderboard entry works like this is the estimate."
   ]
 };

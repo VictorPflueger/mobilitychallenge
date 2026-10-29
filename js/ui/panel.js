@@ -1,17 +1,18 @@
-// The side panel: the run's score (the four scores, where the points go, the score over time), its
-// trains (state, stops, penalty, and the timetable of the selected one), its events and the method.
-// Vici's tabs (role tablist); the panel owns them.
+// The side panel: the run's story (what happens and when), its score (the four scores, where the
+// points go, the score over time), its trains (state, stops, penalty, and the timetable of the
+// selected one), its events and the method. Vici's tabs (role tablist); the panel owns them.
 
 import { h, clear } from "../dom.js";
 import { icon } from "../icons.js";
-import { count, plural, points, score } from "../format.js";
+import { amount, count, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
 import { moments, runFacts } from "../story.js";
 import { RUNS, runById, LEADERBOARD, ESTIMATE_NOTE } from "../runs.js";
 import { comparison, scoreOverTime } from "./charts.js";
 import { aiLabel } from "./ailabel.js";
 import { trainSwatch, trackGlyph } from "./map.js";
-import { STATE } from "../engine/env.js";
+import { STATE, balancedPenalties } from "../engine/env.js";
+import { scoreFloor } from "../floor.js";
 
 const TABS = [
   { id: "story", label: "Story" },
@@ -162,7 +163,7 @@ export function createPanel(root, ctx) {
     const total = run.frames.total[Math.min(state.t, run.steps)];
     clear(breakdownHolder).appendChild(h("figure", { class: "vc-chart breakdown" },
       h("figcaption", {}, h("span", { class: "vc-chart__title" }, `Where the points go: ${runById(state.run).label.toLowerCase()} run`),
-        h("span", { class: "vc-chart__subtitle" }, state.t >= run.steps ? `Final, after ${count(run.steps)} steps` : `At step ${count(state.t)}; the pale bar and the last column are the final values`)),
+        h("span", { class: "vc-chart__subtitle" }, state.t >= run.steps ? `Final, after ${count(run.steps)} steps` : `At step ${count(state.t)}; the pale bar and the last column are the final values. A train's stops and delay count when it arrives, or at the end.`)),
       h("div", { class: "vc-table-wrap" }, h("table", { class: "vc-table vc-table--compact kinds" },
         h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Penalty"), h("th", { scope: "col" }, h("span", { class: "vc-visually-hidden" }, "Share")), h("th", { scope: "col", class: "num" }, "Count"), h("th", { scope: "col", class: "num" }, "So far"), h("th", { scope: "col", class: "num" }, "Final"))),
         h("tbody", {}, rows),
@@ -331,6 +332,8 @@ export function createPanel(root, ctx) {
 
   // ---- Method ------------------------------------------------------------------------------------
   const symbol = (glyph, name, text) => h("li", {}, glyph, h("span", {}, h("strong", {}, `${name}: `), text));
+  const P = balancedPenalties(scenario.maxSteps);
+  const floor = scoreFloor(scenario, P);
   renderMethod();
   function renderMethod() {
     const p = panels.get("method");
@@ -359,12 +362,14 @@ export function createPanel(root, ctx) {
           symbol(trackGlyph("platform"), "Platforms", "a station's platforms; the stops of the train picked in the Trains tab get an ink frame."),
           symbol(trackGlyph("buffer"), "Buffer stop", "the end of a track, where trains enter and leave the map.")),
         h("h3", {}, "How the score works"),
-        h("p", {}, "The score is the sum of penalties, so zero is perfect. The challenge scales its penalties to the episode's 1,248 steps:"),
+        h("p", {}, `The score is minus the sum of all penalties: the closer to zero, the better. The challenge scales its penalties to the episode's ${count(scenario.maxSteps)} steps:`),
         h("ul", { class: "method-penalties" },
-          h("li", {}, h("strong", {}, "Collision: "), "936 × the train's speed when a moving train is stopped by another."),
-          h("li", {}, h("strong", {}, "Stop not served: "), "499.2 for a stop never reached or passed without stopping."),
-          h("li", {}, h("strong", {}, "Late or early: "), "0.5 per step late at a stop, 1.75 per step leaving early, 1 per step late at the destination."),
-          h("li", {}, h("strong", {}, "Unfinished: "), "a train still on the map at the end loses its remaining delay; one that never left loses 4 × (its travel time + 374.4).")),
+          h("li", {}, h("strong", {}, "Collision: "), `${amount(P.crash)} × the train's speed when a moving train is stopped by another.`),
+          h("li", {}, h("strong", {}, "Stop not served: "), `${amount(P.notServed)} for a stop never reached or passed without stopping.`),
+          h("li", {}, h("strong", {}, "Late or early: "), `${amount(P.lateArrival)} per step late at a stop, ${amount(P.earlyDeparture)} per step leaving early, 1 per step late at the destination.`),
+          h("li", {}, h("strong", {}, "Unfinished: "), `a train still on the map at the end loses its remaining delay; one that never left loses ${amount(P.cancellationFactor)} × (its travel time + ${amount(P.cancellationBuffer)}).`)),
+        h("p", {}, "A collision is booked at once; a train's stops and its delay when it reaches its destination, or at the end for a train still on its way. So the score at a step lags behind what the map shows."),
+        h("p", {}, `Zero is out of reach on this map: ${plural(floor.perTrain.filter((v) => v > 0).length, "train")} can't keep their timetables even on empty track, at full speed and without halting, and lose at least ${amount(floor.total)} points between them. No dispatcher can score better than −${amount(floor.total)}.`),
         h("h3", {}, "Limits"),
         h("p", {}, `The two planners do not run in your browser: they ran in Python (the estimate's in a few seconds, the optimized run's in about two minutes), and the page replays the actions they gave each train. Malfunctions are off, as in the challenge's runner. The leaderboard's ${count(LEADERBOARD)} is a figure from the brief; the estimate is a reconstruction of the kind of solution that scores in that range, not the leaderboard entry's code.`),
         h("p", { class: "muted" }, "The map is the challenge's data/maps/neufrankfurt_19agents.json, unchanged. Station names come from its line names; stations no line names stay numbered.")));

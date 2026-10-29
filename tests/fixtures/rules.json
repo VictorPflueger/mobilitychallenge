@@ -9,5 +9,29 @@
   "intermediate_early_departure_penalty_factor": 1.75,
   "intermediate_late_arrival_penalty_factor": 0.5
  },
- "target_late_per_step": 1
+ "target_late_per_step": 1,
+ "floor": {
+  "per_train": [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   472.0,
+   472.0
+  ],
+  "total": 944.0
+ }
 }
