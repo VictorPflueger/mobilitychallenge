@@ -1,7 +1,7 @@
-/* Dispatch Lab — the intro window on Vici's vc-dialog (Rebate Hunter's dialog settings). */
+/* Dispatch Lab — dialogs on Vici's vc-dialog (Rebate Hunter's dialog settings). The guide's own
+   layout is in css/guide.css. */
 
 .vc-dialog { --vc-dialog-width: 880px; max-height: calc(100dvh - 48px); }
-.vc-dialog.dialog-intro { --vc-dialog-width: 1000px; }
 .vc-dialog__header { padding: 18px 20px 6px 24px; }
 .vc-dialog__title { font-size: 1.6rem; line-height: 1.15; color: var(--vc-text); }
 .dialog-lead { margin: 6px 0 0; color: var(--vc-text-muted); max-width: var(--vc-container-prose); }
@@ -9,54 +9,3 @@
 .vc-dialog__body > p { max-width: var(--vc-container-prose); }
 .vc-dialog__footer { align-items: center; gap: 10px; padding: 14px 24px 18px; flex-wrap: wrap; }
 .dialog-note { margin-right: auto; color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); }
-
-.intro-modal .dialog-lead { font-size: var(--fs-lg); line-height: 1.4; color: var(--vc-text); }
-.intro-modal .vc-dialog__body { padding-bottom: 16px; }
-.intro-modal .vc-dialog__body h3 { margin: 2px 0 10px; font-family: var(--vc-font-display); font-weight: var(--vc-weight-semibold); font-size: 1.25rem; line-height: 1.2; letter-spacing: var(--vc-tracking-heading); color: var(--vc-text); }
-
-/* Four scores on Vici's stepper, each hexagon in its run's series colour; the leaderboard's figure
-   as an outlined hexagon (it is not simulated here). */
-.intro-steps.vc-stepper { --_m: 42px; margin: 0 0 18px; padding: 0; }
-.intro-steps .vc-step { gap: 6px; align-items: flex-start; text-align: start; padding-right: 12px; }
-.intro-steps .vc-step:not(:last-child)::after { left: calc(var(--_m) * 1.1547 + var(--vc-space-2)); right: var(--vc-space-2); }
-.intro-steps .vc-step__marker { font-size: 1.25rem; font-weight: 700; }
-.intro-steps .vc-step__marker::before { clip-path: var(--vc-hex); }
-.intro-step[data-tone="baseline"] { --run-color: var(--run-baseline); }
-.intro-step[data-tone="estimate"] { --run-color: var(--run-estimate); }
-.intro-step[data-tone="optimized"] { --run-color: var(--run-optimized); }
-.intro-step[data-tone="baseline"] .vc-step__marker,
-.intro-step[data-tone="estimate"] .vc-step__marker,
-.intro-step[data-tone="optimized"] .vc-step__marker { color: var(--vc-surface); }
-.intro-step[data-tone="baseline"] .vc-step__marker::before,
-.intro-step[data-tone="estimate"] .vc-step__marker::before,
-.intro-step[data-tone="optimized"] .vc-step__marker::before { background: var(--run-color); box-shadow: none; }
-/* Vici's own outlined marker (its evenodd ring) for the figure that is not simulated. */
-.intro-step[data-tone="best"] .vc-step__marker { color: var(--vc-text); }
-.intro-step[data-tone="best"] .vc-step__marker::before {
-  background: var(--vc-text-muted);
-  clip-path: polygon(evenodd,
-    25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%, 25% 0%,
-    calc(25% + 1.1547px) 2px, 2.3094px 50%, calc(25% + 1.1547px) calc(100% - 2px),
-    calc(75% - 1.1547px) calc(100% - 2px), calc(100% - 2.3094px) 50%,
-    calc(75% - 1.1547px) 2px, calc(25% + 1.1547px) 2px);
-}
-.intro-step-title.vc-step__label { display: flex; flex-direction: column; gap: 2px; font-family: var(--vc-font-display); font-size: 1.2rem; font-weight: var(--vc-weight-semibold); line-height: 1.2; letter-spacing: var(--vc-tracking-heading); color: var(--vc-text); }
-.intro-score { font-family: var(--vc-font-text); font-size: 1rem; font-weight: var(--vc-weight-bold); font-variant-numeric: tabular-nums; color: var(--vc-text-muted); letter-spacing: 0; }
-.intro-step-text.vc-step__hint { color: var(--vc-text-muted); font-size: var(--vc-font-size-md); line-height: 1.4; }
-@media (forced-colors: active) {
-  .intro-steps .intro-step .vc-step__marker { forced-color-adjust: none; color: Canvas; }
-  .intro-steps .intro-step .vc-step__marker::before { forced-color-adjust: none; background: CanvasText; }
-}
-
-.intro-value { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 28px; }
-.intro-value li { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-top: 10px; border-top: 3px solid var(--vc-accent-soft-hover); }
-.intro-value li::before { display: none; }
-.intro-value strong { font-family: var(--vc-font-display); font-size: 1.35rem; font-weight: var(--vc-weight-semibold); line-height: 1.15; letter-spacing: var(--vc-tracking-heading); color: var(--vc-text); }
-.intro-value span { color: var(--vc-text-muted); line-height: 1.4; }
-.intro-note { margin: 14px 0 0; color: var(--vc-text-subtle); font-size: var(--vc-font-size-sm); max-width: var(--vc-container-prose); }
-
-@media (max-width: 760px) {
-  .intro-steps.vc-stepper { flex-direction: column; gap: 14px; }
-  .intro-steps .vc-step:not(:last-child)::after { display: none; }
-  .intro-value { grid-template-columns: 1fr; }
-}

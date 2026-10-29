@@ -1,4 +1,5 @@
-// The three runs on screen, and the leaderboard's figure they are measured against.
+// The three runs on screen, and the leaderboard's figure they are measured against. Plain words
+// for readers who do not know the challenge: what each dispatcher does, and how the page gets it.
 
 /** The leaderboard's current best on neufrankfurt_19agents, as the project brief gives it. */
 export const LEADERBOARD = -37374;
@@ -7,27 +8,28 @@ export const RUNS = [
   {
     id: "baseline",
     label: "Baseline",
-    title: "Baseline: OrderedController",
+    title: "Baseline: drive straight, never wait",
     source: "live",
-    summary: "The challenge's default controller. Every train takes the shortest branch towards its destination and never stops on its own, so trains run into each other and through their stops.",
-    how: "Runs live in your browser: a port of OrderedController reads the same tree observation the Python version reads."
+    does: "The challenge's starting point. Every train takes the shortest way to its destination and never waits: not for other trains, and not at its stations.",
+    how: "Runs live in your browser: a port of the challenge's OrderedController reads the same view of the tracks ahead that the Python version reads."
   },
   {
     id: "estimate",
     label: "Estimate",
-    title: "Estimate of the current best",
-    source: "live",
+    title: "Estimate: routes booked, stations skipped",
+    source: "plan",
     ai: true,
-    summary: "A rule-based dispatcher of the kind that lands near the leaderboard's −37,374: the baseline's routing, no driving into an occupied cell, a stop at the next timetabled station, and no early departure.",
-    how: "Runs live in your browser. Claude reconstructed it from the challenge's rules; the leaderboard entry's own code is not public."
+    does: "Claude's reconstruction of a solution at the level of the leaderboard's best. A planner books each train's whole route before letting it in, so no two trains ever meet. The route leads through all the train's stations, but the train never halts there.",
+    how: "Planned in Python by EstimatePlanner and replayed here: your browser simulates and scores every step of it.",
+    why: { wait: "its whole route is free" }
   },
   {
     id: "optimized",
     label: "Optimized",
-    title: "Optimized: PlannerController",
+    title: "Optimized: routes, stops and times planned",
     source: "plan",
-    summary: "Plans every train through all its stops in time and space before the first step, so no two trains ever want the same cell, then improves the plan train group by train group.",
-    how: "The plan was computed in Python (about two minutes of search); your browser replays its actions and the engine simulates and scores them."
+    does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and every stop is served within its time window. Then it keeps improving the plan, a few trains at a time.",
+    how: "Planned in Python by PlannerController (about two minutes of search) and replayed here: your browser simulates and scores every step of it."
   }
 ];
 
@@ -37,7 +39,7 @@ export const runById = (id) => RUNS.find((r) => r.id === id);
 export const ESTIMATE_NOTE = {
   title: "Claude's reconstruction",
   text: [
-    "The leaderboard's −37,374 comes from code that is not public. Claude rebuilt the kind of controller that lands there from the challenge's rules: the baseline's routing, no driving into an occupied cell, a stop at the next timetabled station, and no early departure.",
-    "Your browser runs these rules live. The score is the engine's, not a guess; that the leaderboard entry worked this way is the estimate."
+    "The leaderboard's −37,374 comes from code that is not public. Claude rebuilt the kind of solution that scores in that range: every train gets through without ever meeting another, but no train halts at its stations, and each of those stops costs 499.2 points.",
+    "The planner and the score are real: the engine simulates and scores its actions like any other run. That the leaderboard entry looks like this is the estimate."
   ]
 };

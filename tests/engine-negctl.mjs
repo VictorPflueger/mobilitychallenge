@@ -1,7 +1,7 @@
 // Negative controls for tests/engine.mjs: the parity check must fail when the engine is wrong.
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
-// function, the plan, the estimate's port, the distance map or the score breakdown) and the parity
-// check must report a difference. The unchanged engine must pass first, so a failure is the check's doing, not a
+// function, either plan, the distance map or the score breakdown) and the parity check must report
+// a difference. The unchanged engine must pass first, so a failure is the check's doing, not a
 // broken harness.
 // Usage: node tests/engine-negctl.mjs
 import { readFileSync } from "node:fs";
@@ -89,7 +89,7 @@ expectDifference("the higher index wins a contested cell", () => patched(MotionC
 
 // The reward function.
 expectDifference("crash penalty 935 instead of 936", () => parity("baseline", { mutateEnv: (env) => { env.penalty.crash = 935; } }));
-expectDifference("late arrival at a stop 0.6 per step instead of 0.5", () => parity("estimate", { mutateEnv: (env) => { env.penalty.lateArrival = 0.6; } }));
+expectDifference("late arrival at a stop 0.6 per step instead of 0.5", () => anyRun({ mutateEnv: (env) => { env.penalty.lateArrival = 0.6; } }));
 expectDifference("a missed stop 499 instead of 499.2", () => parity("baseline", { mutateEnv: (env) => { env.penalty.notServed = 499; } }));
 
 // The plan: one action changed from MOVE_FORWARD to DO_NOTHING.
@@ -100,13 +100,13 @@ expectDifference("one action of the plan changed", () => parity("optimized", {
   }
 }));
 
-// The estimate's port: comparing the action as an enum would check the branch's cell.
-expectDifference("the estimate checks the branch's cell instead of the cell straight ahead", () => {
-  const check = Rail.prototype.checkActionOnAgent;
-  return patched(Rail.prototype, "checkActionOnAgent", function (action, cell, direction) {
-    return check.call(this, action, cell, direction, true);
-  }, () => parity("estimate"));
-});
+// The estimate's plan: one train enters the network a step earlier than booked.
+expectDifference("one train of the estimate enters a step early", () => parity("estimate", {
+  mutatePlan: (plan) => {
+    const enter = plan.actions.findIndex((a, t) => t > 0 && a[2] !== 0); // train 2 waits longest at its entry
+    plan.actions[enter - 1][2] = plan.actions[enter][2];
+  }
+}));
 
 // The distance map: one reachable value off by one.
 expectDifference("one distance-map value off by one", () => distanceMapParity({

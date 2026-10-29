@@ -20,7 +20,6 @@ import { fileURLToPath } from "node:url";
 import { RailEnv, loadScenario, runEpisode } from "../js/engine/env.js";
 import { PySmallIntSet, pyRound, pySum } from "../js/engine/py.js";
 import { OrderedController } from "../js/controllers/ordered.js";
-import { EstimateController } from "../js/controllers/estimate.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { KINDS, breakdown, simulate } from "../js/sim.js";
 
@@ -38,11 +37,10 @@ export function makeEnv(options = {}) {
 
 export function makeController(name, options = {}) {
   if (name === "baseline") return new OrderedController();
-  if (name === "estimate") return new EstimateController();
-  if (name === "optimized") {
-    const plan = read("data/planner_actions.json");
+  if (name === "estimate" || name === "optimized") {
+    const plan = read(name === "estimate" ? "data/estimate_actions.json" : "data/planner_actions.json");
     if (options.mutatePlan) options.mutatePlan(plan);
-    return new ReplayController(plan);
+    return new ReplayController(plan, name);
   }
   throw new Error(`unknown controller ${name}`);
 }

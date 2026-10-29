@@ -9,8 +9,8 @@
    "steps": 1248
   },
   "estimate": {
-   "reward": -36576.6,
-   "steps": 1248
+   "reward": -32488.800000000007,
+   "steps": 1043
   },
   "optimized": {
    "reward": -1014.0,

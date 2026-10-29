@@ -9,7 +9,9 @@ a delay at the target, a stop not served, ...), so tests/engine.mjs can compare 
 and the score breakdown the page shows, with flatland number for number.
 
   baseline   OrderedController, the challenge's default (tree observation, depth 2)
-  estimate   tools/estimate_controller.py, the rule-based estimate of the current best
+  estimate   tools/estimate_planner.py, the estimate of the current best (routes booked, stops
+             skipped), run live; its actions must equal data/estimate_actions.json, which the page
+             replays (tools/check_estimate.py writes that file and checks the run)
   optimized  the actions in data/planner_actions.json (PlannerController's plan, see check_plan.py),
              replayed by a controller that never sees the environment
 
@@ -200,8 +202,9 @@ def run(tbsim, scenario):
         from controller.orderedcontroller import OrderedController
         ctrl = OrderedController()
     elif scenario == 'estimate':
-        from estimate_controller import EstimateController
-        ctrl = EstimateController(env)
+        from estimate_planner import EstimatePlanner
+        ctrl = EstimatePlanner(env)
+        estimate_plan = json.load(open(os.path.join(SITE, 'data', 'estimate_actions.json')))
     else:
         plan = json.load(open(os.path.join(SITE, 'data', 'planner_actions.json')))
         ctrl = Replay(plan['actions'])
@@ -230,6 +233,8 @@ def run(tbsim, scenario):
             assert abs(by_step.get((t, handle), 0) - rew) < 1e-6, ('terms', t, handle, by_step.get((t, handle)), rew)
     if scenario == 'optimized':
         assert rec.actions == plan['actions'][:len(rec.actions)] and len(rec.actions) == len(plan['actions']), 'replay diverged'
+    if scenario == 'estimate':
+        assert rec.actions == estimate_plan['actions'], 'data/estimate_actions.json is not what EstimatePlanner does'
     return {
         'scenario': scenario,
         'map': os.path.basename(MAP),
@@ -318,6 +323,22 @@ def main():
         else:
             open(ref_path, 'w').write(json.dumps(ref, indent=1))
             print('wrote data/reference.json')
+    # tests/fixtures/rules.json: the penalties as the challenge's own code sets them for this map
+    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), which
+    # tests/guide.mjs compares with the figures the guide states.
+    from scaled_penalties import get_scaled_penalties
+    max_steps = json.load(open(MAP))['flatland timetable']['max_episode_steps']
+    rules = {'map': os.path.basename(MAP), 'max_episode_steps': max_steps,
+             'balanced': get_scaled_penalties(max_steps, profile='balanced'),
+             'target_late_per_step': 1}
+    rules_path = os.path.join(out_dir, 'rules.json')
+    if args.check:
+        same = os.path.exists(rules_path) and json.load(open(rules_path)) == json.loads(json.dumps(rules))
+        ok &= same
+        print(f'penalties for {max_steps} steps {"identical to" if same else "DIFFER from"} tests/fixtures/rules.json')
+    elif not args.only:
+        open(rules_path, 'w').write(json.dumps(rules, indent=1))
+        print('wrote tests/fixtures/rules.json')
     sem = python_semantics()
     path = os.path.join(out_dir, 'python_semantics.json')
     if args.check:

@@ -52,14 +52,13 @@ export class Rail {
   }
 
   /**
-   * RailGridTransitionMap._check_action_new. `compareActions` false reproduces a call with a plain
-   * int in Python: RailEnvActions (a fastenum) never equals an int, so no branch for LEFT or
-   * RIGHT is taken. Returns [new direction, transition valid, preprocessed action].
+   * RailGridTransitionMap._check_action_new. Returns [new direction, transition valid, preprocessed
+   * action].
    */
-  checkActionNew(action, cell, direction, compareActions = true) {
+  checkActionNew(action, cell, direction) {
     const possible = this.transitions(cell, direction);
     const count = possible[0] + possible[1] + possible[2] + possible[3];
-    const is = (a) => compareActions && action === a;
+    const is = (a) => action === a;
     if (count === 1) {
       const newDirection = possible[0] === 1 ? 0 : possible[1] === 1 ? 1 : possible[2] === 1 ? 2 : 3;
       if (is(ACTION.MOVE_LEFT) && newDirection !== pyMod(direction - 1, 4)) return [newDirection, false, ACTION.MOVE_FORWARD];
@@ -84,8 +83,8 @@ export class Rail {
    * check_action_on_agent: { position {r, c}, direction, valid, action } for an action taken at
    * (cell, direction). The position may lie off the grid when the action is refused at a switch.
    */
-  checkActionOnAgent(action, cell, direction, compareActions = true) {
-    const [newDirection, valid, preprocessed] = this.checkActionNew(action, cell, direction, compareActions);
+  checkActionOnAgent(action, cell, direction) {
+    const [newDirection, valid, preprocessed] = this.checkActionNew(action, cell, direction);
     const position = this.step(cell, newDirection);
     return { position, direction: newDirection, valid, action: preprocessed };
   }

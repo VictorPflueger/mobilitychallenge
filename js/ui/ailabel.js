@@ -1,6 +1,8 @@
 // The AI label, after IBM Carbon for AI and Pickering's toggletips: Vici's feature tag (lilac, the
 // sparkle, "AI") on content Claude wrote or estimated. A click opens a short explanation in Vici's
-// popover look; it stays until a click elsewhere or Escape, and gives the focus back.
+// popover look; it stays until a click elsewhere or Escape, and gives the focus back. Inside a modal
+// dialog (the guide) the explanation opens in that dialog: anything outside it lies under the
+// dialog and cannot be seen; Escape then closes the explanation, not the dialog.
 
 import { h } from "../dom.js";
 import { icon } from "../icons.js";
@@ -20,7 +22,8 @@ document.addEventListener("click", (e) => {
   if (open && !open.tip.contains(e.target) && !open.button.contains(e.target)) closeOpen(false);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && open) { e.stopPropagation(); closeOpen(true); }
+  // registered before any dialog's own Escape (js/modal.js), which this keeps from closing it
+  if (e.key === "Escape" && open) { e.stopImmediatePropagation(); closeOpen(true); }
 }, true);
 window.addEventListener("resize", () => closeOpen(false));
 
@@ -35,7 +38,8 @@ export function aiLabel(title, paragraphs) {
     e.stopPropagation();
     if (open && open.button === button) { closeOpen(false); return; }
     closeOpen(false);
-    if (!tip.isConnected) document.body.appendChild(tip);
+    const host = button.closest("dialog") || document.body;
+    if (tip.parentNode !== host) host.appendChild(tip);
     tip.hidden = false;
     const r = button.getBoundingClientRect();
     const w = tip.offsetWidth;

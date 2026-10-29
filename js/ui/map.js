@@ -8,7 +8,7 @@ import { h, svg, prefersReducedMotion } from "../dom.js";
 import { trackDrawing } from "../network.js";
 import { trainStatus } from "../sim.js";
 
-const HEX = (r) => [0, 1, 2, 3, 4, 5].map((k) => {
+export const HEX = (r) => [0, 1, 2, 3, 4, 5].map((k) => {
   const a = (Math.PI / 3) * k;
   return `${+(r * Math.cos(a)).toFixed(4)},${+(r * Math.sin(a)).toFixed(4)}`;
 }).join(" ");
@@ -41,13 +41,10 @@ export function createMap(root, { scenario, network, onSelect }) {
     return svg("rect", { class: "level-free", x: x + 0.22, y: y + 0.22, width: 0.56, height: 0.56, rx: 0.08, "vector-effect": "non-scaling-stroke" });
   }));
   const stations = svg("g", { class: "map-stations" });
-  const boxes = network.stations.map((s) => {
-    const rows = s.cells.map((c) => rail.row(c));
-    const cols = s.cells.map((c) => rail.col(c));
-    const box = { id: s.id, x0: Math.min(...cols), x1: Math.max(...cols) + 1, y0: Math.min(...rows), y1: Math.max(...rows) + 1, station: s };
+  const boxes = stationBoxes(rail, network).map((box) => {
     const rect = svg("rect", {
       class: "platform", x: box.x0 + 0.08, y: box.y0 + 0.08, width: box.x1 - box.x0 - 0.16, height: box.y1 - box.y0 - 0.16,
-      rx: 0.12, "vector-effect": "non-scaling-stroke", dataset: { station: s.id }
+      rx: 0.12, "vector-effect": "non-scaling-stroke", dataset: { station: box.id }
     });
     stations.appendChild(rect);
     box.rect = rect;
@@ -78,9 +75,14 @@ export function createMap(root, { scenario, network, onSelect }) {
   svg("desc", { id: "map-desc" }, `${network.stations.length} stations and ${scenario.agents.length} trains on a ${H} by ${W} cell grid. The Trains tab lists every train with its state.`),
   tracks, crossings, stations, labels, trainsLayer);
 
+  // The situation in full, and short for a narrow map (css/map.css shows one of them).
+  const situationLong = h("span", { class: "sit-text sit-long" }, "");
+  const situationShort = h("span", { class: "sit-text sit-short" }, "");
+  const situationLine = h("div", { class: "cap-situation", id: "map-situation", role: "status", hidden: true }, h("span", { class: "cap-dot", "aria-hidden": "true" }), situationLong, situationShort);
   const caption = h("div", { class: "map-caption" },
     h("div", { class: "cap-line" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", { id: "map-run" }, "")),
-    h("div", { class: "cap-sub", id: "map-sub" }, ""));
+    h("div", { class: "cap-sub", id: "map-sub" }, ""),
+    situationLine);
   const legend = buildLegend();
   const viewButtons = new Map();
   const tools = h("div", { class: "segmented map-views", role: "group", "aria-label": "Map view" },
@@ -121,11 +123,7 @@ export function createMap(root, { scenario, network, onSelect }) {
     render(lastT, true);
   }
 
-  // Station labels: beside the platforms, where they cover no other label, no platform and as few
-  // tracks as possible, inside the part of the map on screen. A numbered stop whose label would
-  // cover another label or a platform is left unnamed (its platforms are still drawn); a named
-  // station gets its name in the least crowded place, unless every place would cover another name
-  // or leave the screen (a phone's tiny map, a station at the edge of the Hbf view).
+  // Station labels (layoutLabels below), placed again whenever the view or its size changes.
   const occupied = new Uint8Array(W * H);
   for (let c = 0; c < rail.cells.length; c += 1) if (rail.cells[c]) occupied[c] = 1;
   function placeLabels() {
@@ -133,56 +131,11 @@ export function createMap(root, { scenario, network, onSelect }) {
     if (placedFor === key) return;
     placedFor = key;
     while (labels.firstChild) labels.removeChild(labels.firstChild);
-    const font = LABEL_PX / ppu;
-    const minor = ppu < 7;
-    const placed = [];
-    const hits = (a, b, pad = 0) => a.x - pad < b.x + b.w && b.x - pad < a.x + a.w && a.y - pad < b.y + b.h && b.y - pad < a.y + a.h;
-    const order = [...boxes].sort((a, b) => (a.station.name.startsWith("Stop") ? 1 : 0) - (b.station.name.startsWith("Stop") ? 1 : 0) || a.id - b.id);
-    for (const b of order) {
-      const text = b.station.short;
-      const isMinor = text.startsWith("Stop");
-      if (minor && isMinor) continue;
-      if (b.x1 < shown[0] || b.x0 > shown[0] + shown[2] || b.y1 < shown[1] || b.y0 > shown[1] + shown[3]) continue;
-      const w = (text.length * 0.6 + 0.5) * font;
-      const hgt = 1.25 * font;
-      const cy = (b.y0 + b.y1) / 2;
-      const cx = (b.x0 + b.x1) / 2;
-      // Beside the platforms (centred, or level with their top or bottom) and above or below them
-      // (centred, or flush with either end), close by first, then a line further out.
-      const candidates = [];
-      const near = Math.max(0.45, 4 / ppu);
-      for (const gap of [near, near + hgt]) {
-        for (const y of [cy - hgt / 2, b.y0, b.y1 - hgt]) {
-          candidates.push({ x: b.x1 + gap, y, anchor: "start" }, { x: b.x0 - gap - w, y, anchor: "end" });
-        }
-        for (const y of [b.y0 - gap - hgt, b.y1 + gap]) {
-          candidates.push({ x: cx - w / 2, y, anchor: "middle" }, { x: b.x1 - w, y, anchor: "end" }, { x: b.x0, y, anchor: "start" });
-        }
-      }
-      let best = null;
-      candidates.forEach((c, i) => {
-        const rect = { x: c.x, y: c.y, w, h: hgt };
-        let cost = i >= 12 ? 2 : 0; // the near places first
-        if (c.x < shown[0] || c.y < shown[1] || c.x + w > shown[0] + shown[2] || c.y + hgt > shown[1] + shown[3]) cost += 1000;
-        for (let y = Math.floor(c.y); y < c.y + hgt; y += 1) {
-          for (let x = Math.floor(c.x); x < c.x + w; x += 1) {
-            if (x >= 0 && y >= 0 && x < W && y < H && occupied[y * W + x]) cost += 6;
-          }
-        }
-        for (const p of placed) {
-          if (hits(rect, p)) cost += 500;
-          else if (hits(rect, p, 0.6 * font)) cost += 40; // too close to read as two names
-        }
-        for (const o of boxes) if (o !== b && hits(rect, { x: o.x0, y: o.y0, w: o.x1 - o.x0, h: o.y1 - o.y0 })) cost += 200;
-        if (!best || cost < best.cost) best = { ...c, cost };
-      });
-      if (best.cost >= 500 || (isMinor && best.cost >= 200)) continue;
-      placed.push({ x: best.x, y: best.y, w, h: hgt });
-      const tx = best.anchor === "start" ? best.x : best.anchor === "end" ? best.x + w : best.x + w / 2;
+    for (const l of layoutLabels({ boxes, occupied, W, H, shown, ppu })) {
       labels.appendChild(svg("text", {
-        class: ["station-label", isMinor ? "minor" : ""].join(" "),
-        x: tx, y: best.y + hgt / 2, "font-size": font, "text-anchor": best.anchor, "dominant-baseline": "central", dataset: { station: b.id }
-      }, text));
+        class: ["station-label", l.minor ? "minor" : ""].join(" "),
+        x: l.x, y: l.y, "font-size": l.font, "text-anchor": l.anchor, "dominant-baseline": "central", dataset: { station: l.id }
+      }, l.text));
     }
   }
 
@@ -243,6 +196,16 @@ export function createMap(root, { scenario, network, onSelect }) {
     caption.querySelector("#map-sub").textContent = text;
   }
 
+  /** The situation line under the caption: { tone, text, short }, or null to hide it. */
+  function setSituation(s) {
+    const text = s ? s.text : "";
+    if (situationLong.textContent === text && situationLine.dataset.tone === (s?.tone || "")) return;
+    situationLine.hidden = !s;
+    situationLine.dataset.tone = s?.tone || "";
+    situationLong.textContent = text;
+    situationShort.textContent = s ? s.short || s.text : "";
+  }
+
   function select(i) {
     selected = i;
     for (const b of boxes) b.rect.dataset.stop = "false";
@@ -259,7 +222,90 @@ export function createMap(root, { scenario, network, onSelect }) {
   document.addEventListener("vc:themechange", () => render(lastT, true));
   requestAnimationFrame(layout);
 
-  return { setRun, render, select, setCaption, layout, setView };
+  return { setRun, render, select, setCaption, setSituation, layout, setView };
+}
+
+/** The stations' platform boxes in cell units: [{ id, x0, x1, y0, y1, station }]. */
+export function stationBoxes(rail, network) {
+  return network.stations.map((s) => {
+    const rows = s.cells.map((c) => rail.row(c));
+    const cols = s.cells.map((c) => rail.col(c));
+    return { id: s.id, x0: Math.min(...cols), x1: Math.max(...cols) + 1, y0: Math.min(...rows), y1: Math.max(...rows) + 1, station: s };
+  });
+}
+
+/**
+ * Station labels: beside the platforms, where they cover no other label, no platform and as few
+ * tracks as possible, inside the part of the drawing on screen (shown, in cells). A numbered stop
+ * whose label would cover another label or a platform is left unnamed (its platforms are still
+ * drawn), and numbered stops are left out below 7 px per cell; a named station gets its name in
+ * the least crowded place, unless every place would cover another name or leave the screen (a
+ * phone's tiny map, a station at the edge of the Hbf view). ppu: screen pixels per cell.
+ * Returns [{ id, text, x, y, anchor, font, minor }] in cell units.
+ */
+export function layoutLabels({ boxes, occupied, W, H, shown, ppu, labelPx = LABEL_PX }) {
+  const font = labelPx / ppu;
+  const hideMinor = ppu < 7;
+  const placed = [];
+  const out = [];
+  const hits = (a, b, pad = 0) => a.x - pad < b.x + b.w && b.x - pad < a.x + a.w && a.y - pad < b.y + b.h && b.y - pad < a.y + a.h;
+  const order = [...boxes].sort((a, b) => (a.station.name.startsWith("Stop") ? 1 : 0) - (b.station.name.startsWith("Stop") ? 1 : 0) || a.id - b.id);
+  for (const b of order) {
+    const text = b.station.short;
+    const isMinor = text.startsWith("Stop");
+    if (hideMinor && isMinor) continue;
+    if (b.x1 < shown[0] || b.x0 > shown[0] + shown[2] || b.y1 < shown[1] || b.y0 > shown[1] + shown[3]) continue;
+    const w = (text.length * 0.6 + 0.5) * font;
+    const hgt = 1.25 * font;
+    const cy = (b.y0 + b.y1) / 2;
+    const cx = (b.x0 + b.x1) / 2;
+    // Beside the platforms (centred, or level with their top or bottom) and above or below them
+    // (centred, or flush with either end), close by first, then a line further out.
+    const candidates = [];
+    const near = Math.max(0.45, 4 / ppu);
+    for (const gap of [near, near + hgt]) {
+      for (const y of [cy - hgt / 2, b.y0, b.y1 - hgt]) {
+        candidates.push({ x: b.x1 + gap, y, anchor: "start" }, { x: b.x0 - gap - w, y, anchor: "end" });
+      }
+      for (const y of [b.y0 - gap - hgt, b.y1 + gap]) {
+        candidates.push({ x: cx - w / 2, y, anchor: "middle" }, { x: b.x1 - w, y, anchor: "end" }, { x: b.x0, y, anchor: "start" });
+      }
+    }
+    let best = null;
+    candidates.forEach((c, i) => {
+      const rect = { x: c.x, y: c.y, w, h: hgt };
+      let cost = i >= 12 ? 2 : 0; // the near places first
+      if (c.x < shown[0] || c.y < shown[1] || c.x + w > shown[0] + shown[2] || c.y + hgt > shown[1] + shown[3]) cost += 1000;
+      for (let y = Math.floor(c.y); y < c.y + hgt; y += 1) {
+        for (let x = Math.floor(c.x); x < c.x + w; x += 1) {
+          if (x >= 0 && y >= 0 && x < W && y < H && occupied[y * W + x]) cost += 6;
+        }
+      }
+      for (const p of placed) {
+        if (hits(rect, p)) cost += 500;
+        else if (hits(rect, p, 0.6 * font)) cost += 40; // too close to read as two names
+      }
+      for (const o of boxes) if (o !== b && hits(rect, { x: o.x0, y: o.y0, w: o.x1 - o.x0, h: o.y1 - o.y0 })) cost += 200;
+      if (!best || cost < best.cost) best = { ...c, cost };
+    });
+    if (best.cost >= 500 || (isMinor && best.cost >= 200)) continue;
+    placed.push({ x: best.x, y: best.y, w, h: hgt });
+    const tx = best.anchor === "start" ? best.x : best.anchor === "end" ? best.x + w : best.x + w / 2;
+    out.push({ id: b.id, text, x: tx, y: best.y + hgt / 2, anchor: best.anchor, font, minor: isMinor });
+  }
+  return out;
+}
+
+/**
+ * A train as the map draws it, for drawings outside the map: a flat-top hexagon of radius `size` at
+ * (x, y) in the drawing's units, with the map's tones (css/map.css) and, if given, its number.
+ */
+export function trainGlyph({ x, y, size, tone = "ontime", motion = "moving", number = null, selected = false }) {
+  return svg("g", { class: "train", transform: `translate(${x} ${y}) scale(${size})`, dataset: { tone, motion, selected: String(selected) }, "aria-hidden": "true" },
+    svg("polygon", { class: "train-ring", points: HEX(1.42) }),
+    svg("polygon", { class: "train-alert", points: HEX(1.32) }),
+    svg("polygon", { class: "train-hex", points: HEX(1) }),
+    number === null ? null : svg("text", { class: "train-num", x: 0, y: 0.05, "text-anchor": "middle", "dominant-baseline": "central" }, String(number)));
 }
 
 /** A train's symbol as the map draws it, for the legend and the Method tab. */

@@ -1,0 +1,13 @@
+{
+ "map": "neufrankfurt_19agents.json",
+ "max_episode_steps": 1248,
+ "balanced": {
+  "crash_penalty_factor": 936.0,
+  "cancellation_factor": 4.0,
+  "cancellation_time_buffer": 374.4,
+  "intermediate_not_served_penalty": 499.20000000000005,
+  "intermediate_early_departure_penalty_factor": 1.75,
+  "intermediate_late_arrival_penalty_factor": 0.5
+ },
+ "target_late_per_step": 1
+}

@@ -16,7 +16,14 @@ export function points(v) {
   return ONE.format(Math.abs(Math.round(v * 10) / 10));
 }
 
-/** A signed difference: +36,360.0 or −797.4. */
+const UPTO2 = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 });
+
+/** An amount in running text, as exact as it is and without a needless ".0": 936, 499.2, 1.75. */
+export function amount(v) {
+  return UPTO2.format(Math.abs(Math.round(v * 100) / 100));
+}
+
+/** A signed difference: +36,360.0 or −4,885.2. */
 export function signed(v) {
   const r = Math.round(v * 10) / 10;
   if (r === 0) return "±0.0";

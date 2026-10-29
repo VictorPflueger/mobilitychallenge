@@ -6,6 +6,7 @@ import { h, clear } from "../dom.js";
 import { icon } from "../icons.js";
 import { count, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
+import { moments, runFacts } from "../story.js";
 import { RUNS, runById, LEADERBOARD, ESTIMATE_NOTE } from "../runs.js";
 import { comparison, scoreOverTime } from "./charts.js";
 import { aiLabel } from "./ailabel.js";
@@ -13,6 +14,7 @@ import { trainSwatch, trackGlyph } from "./map.js";
 import { STATE } from "../engine/env.js";
 
 const TABS = [
+  { id: "story", label: "Story" },
   { id: "score", label: "Score" },
   { id: "trains", label: "Trains" },
   { id: "events", label: "Events" },
@@ -25,7 +27,7 @@ export function createPanel(root, ctx) {
   const panels = new Map();
   const list = h("div", { class: "vc-tabs__list panel-tabs", role: "tablist", "aria-label": "Run details" });
   const body = h("div", { class: "panel-body" });
-  let active = "score";
+  let active = "story";
 
   for (const t of TABS) {
     const b = h("button", { type: "button", role: "tab", id: `tab-${t.id}`, "aria-selected": String(t.id === active), "aria-controls": `panel-${t.id}`, tabindex: t.id === active ? "0" : "-1" }, t.label);
@@ -52,6 +54,80 @@ export function createPanel(root, ctx) {
     for (const [pid, p] of panels) p.hidden = pid !== id;
     ctx.onTab?.(id);
     refresh(true);
+  }
+
+  // ---- Story -------------------------------------------------------------------------------------
+  // What the run's dispatcher does, the moments worth watching (each jumps to its step and picks its
+  // train), why it scores what it scores, and the way on to the next run.
+  const stories = new Map();
+  const storyOf = (id) => {
+    if (!stories.has(id)) {
+      const run = runs.get(id);
+      const facts = runFacts(run, scenario);
+      stories.set(id, { facts, moments: moments(run, scenario, network, facts, runById(id).why || {}) });
+    }
+    return stories.get(id);
+  };
+  const NEXT = {
+    baseline: { run: "estimate", text: "Next: how the estimate gets every train through" },
+    estimate: { run: "optimized", text: "Next: how the optimized run serves every stop" },
+    optimized: { run: null, text: "Compare all four scores" }
+  };
+  const storyHolder = h("div", { class: "story" });
+  panels.get("story").append(storyHolder);
+  let storyFor = "";
+  let momentButtons = [];
+
+  function renderStory() {
+    const id = state.run;
+    const r = runById(id);
+    const run = runs.get(id);
+    const { facts, moments: list } = storyOf(id);
+    if (storyFor !== id) {
+      storyFor = id;
+      storyHolder.dataset.run = id;
+      const fin = breakdown(run, run.steps);
+      const lost = KINDS.map((k) => ({ ...k, ...fin[k.id] })).filter((k) => k.value < 0).sort((a, b) => a.value - b.value);
+      const total = Math.abs(run.score) || 1;
+      momentButtons = list.map((m) => h("button", {
+        type: "button", class: "moment", dataset: { kind: m.kind },
+        on: { click: () => { ctx.onSeek(m.step); ctx.onSelect(m.train ?? null, { keepTab: true }); } }
+      },
+      h("span", { class: "moment-step" }, `Step ${count(m.step)}`),
+      h("span", { class: "moment-body" }, h("strong", {}, m.title), h("span", {}, m.text))));
+      const next = NEXT[id];
+      clear(storyHolder).append(
+        h("section", { class: "story-intro" },
+          h("div", { class: "story-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("h3", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
+          h("p", {}, r.does),
+          h("ul", { class: "story-facts" },
+            h("li", {}, h("strong", {}, `${count(facts.arrived)} / ${count(facts.n)}`), h("span", {}, "trains arrived")),
+            h("li", {}, h("strong", {}, `${count(facts.served)} / ${count(facts.stops)}`), h("span", {}, "stops served")),
+            h("li", {}, h("strong", {}, count(facts.collisions)), h("span", {}, facts.collisions === 1 ? "collision" : "collisions")),
+            h("li", {}, h("strong", {}, score(run.score)), h("span", {}, "score")))),
+        h("section", {},
+          h("h3", {}, "What happens"),
+          h("p", { class: "panel-hint" }, icon("info", 16), "Pick a moment to jump to it on the map."),
+          h("ol", { class: "story-moments" }, momentButtons.map((b) => h("li", {}, b)))),
+        h("section", {},
+          h("h3", {}, `Why it scores ${score(run.score)}`),
+          lost.length
+            ? h("ul", { class: "story-why" }, lost.slice(0, 4).map((k) => h("li", { dataset: { tone: k.tone } },
+              h("span", { class: "story-why-share" }, `${Math.round((Math.abs(k.value) / total) * 100)} %`),
+              h("span", {}, h("strong", {}, `${k.label}: ${score(k.value)}`), h("span", {}, `${count(k.count)} × · ${k.hint}`)))))
+            : h("p", {}, "No penalty at all.")),
+        h("button", {
+          type: "button", class: "vc-button vc-button--secondary story-next",
+          on: { click: () => (next.run ? ctx.onRun(next.run) : show("score")) }
+        }, next.text, icon("forward", 16)));
+    }
+    // the moment the timeline has reached
+    let current = -1;
+    list.forEach((m, j) => { if (m.step <= state.t) current = j; });
+    momentButtons.forEach((b, j) => {
+      b.dataset.state = j < current ? "past" : j === current ? "current" : "ahead";
+      if (j === current) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    });
   }
 
   // ---- Score -------------------------------------------------------------------------------------
@@ -194,7 +270,7 @@ export function createPanel(root, ctx) {
         close),
       h("div", { class: "vc-table-wrap" }, h("table", { class: "vc-table vc-table--compact timetable" },
         h("caption", { class: "vc-visually-hidden" }, `Timetable of train ${i}: due and actual steps`),
-        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Station"), h("th", { scope: "col", class: "num" }, "Due by"), h("th", { scope: "col", class: "num" }, "Arrived"), h("th", { scope: "col", class: "num" }, "Leaves from"), h("th", { scope: "col", class: "num" }, "Left"), h("th", { scope: "col" }, ""))),
+        h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Station"), h("th", { scope: "col", class: "num" }, "Arrive by"), h("th", { scope: "col", class: "num" }, "Arrived"), h("th", { scope: "col", class: "num" }, "Leave from"), h("th", { scope: "col", class: "num" }, "Left"), h("th", { scope: "col" }, ""))),
         h("tbody", {}, rows)))));
   }
 
@@ -260,7 +336,7 @@ export function createPanel(root, ctx) {
     const p = panels.get("method");
     const runsInfo = RUNS.map((r) => h("li", { dataset: { run: r.id } },
       h("div", { class: "method-run-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
-      h("p", {}, r.summary), h("p", { class: "muted" }, r.how)));
+      h("p", {}, r.does), h("p", { class: "muted" }, r.how)));
     const ref = reference;
     p.append(
       h("section", { class: "method" },
@@ -290,7 +366,7 @@ export function createPanel(root, ctx) {
           h("li", {}, h("strong", {}, "Late or early: "), "0.5 per step late at a stop, 1.75 per step leaving early, 1 per step late at the destination."),
           h("li", {}, h("strong", {}, "Unfinished: "), "a train still on the map at the end loses its remaining delay; one that never left loses 4 × (its travel time + 374.4).")),
         h("h3", {}, "Limits"),
-        h("p", {}, `The planner itself does not run in your browser: it searches for about two minutes in Python, and its actions are replayed here. Malfunctions are off, as in the challenge's runner. The leaderboard's ${count(LEADERBOARD)} is a figure from the brief; the estimate is a reconstruction of how such a score comes about, not the leaderboard entry's code.`),
+        h("p", {}, `The two planners do not run in your browser: they ran in Python (the estimate's in a few seconds, the optimized run's in about two minutes), and the page replays the actions they gave each train. Malfunctions are off, as in the challenge's runner. The leaderboard's ${count(LEADERBOARD)} is a figure from the brief; the estimate is a reconstruction of the kind of solution that scores in that range, not the leaderboard entry's code.`),
         h("p", { class: "muted" }, "The map is the challenge's data/maps/neufrankfurt_19agents.json, unchanged. Station names come from its line names; stations no line names stay numbered.")));
   }
 
@@ -298,7 +374,8 @@ export function createPanel(root, ctx) {
   const state = { run: ctx.initialRun, t: 0, selected: null };
   let lastCompare = "";
   function refresh(force = false) {
-    if (active === "score") {
+    if (active === "story") renderStory();
+    else if (active === "score") {
       const key = `${state.run}`;
       if (force || key !== lastCompare) { renderCompare(); lastCompare = key; }
       renderBreakdown();

@@ -10,7 +10,8 @@ const VICI = {
   play: "play", restart: "refresh", back: "chevron-left", forward: "chevron-right", info: "info",
   close: "close", x: "close", flag: "flag", check: "check", warning: "warning", error: "error", success: "success",
   clock: "clock", chart: "chart-line", spark: "sparkle", globe: "globe-hex", external: "external",
-  list: "layers", hub: "honeycomb", pin: "pin", up: "chevron-up", down: "chevron-down", code: "code"
+  list: "layers", hub: "honeycomb", pin: "pin", up: "chevron-up", down: "chevron-down", code: "code",
+  arrowUp: "arrow-up", more: "more", book: "book", map: "layout", eye: "eye", users: "users"
 };
 
 /** The app's own drawings (static, trusted strings; never built from data). */
@@ -21,6 +22,11 @@ const DRAWN = {
   toStart: "<path d='M6.5 5.5 V18.5'/><path d='M15.75 5.5 L12 12 L15.75 18.5'/>",
   // Vici's chevron and a bar: to the last step.
   toEnd: "<path d='M17.5 5.5 V18.5'/><path d='M8.25 5.5 L12 12 L8.25 18.5'/>",
+  // A hexagon with a bar across, as a stop sign in Vici's shape (brake to a halt).
+  stop: "<path d='M7.5 4.2 H16.5 L21 12 L16.5 19.8 H7.5 L3 12 Z'/><path d='M8.5 12 H15.5'/>",
+  // Straight on, then the branch to the left or to the right, as at a switch.
+  turnLeft: "<path d='M15 20.5 V12.5 L9.5 7'/><path d='M9 12 V6.5 H14.5'/>",
+  turnRight: "<path d='M9 20.5 V12.5 L14.5 7'/><path d='M15 12 V6.5 H9.5'/>",
   // A rail vehicle seen from the front, with chamfered corners and hexagon lamps (a train).
   train: "<path d='M7.5 3.5 H16.5 L18.5 5.5 V16 L16.5 18 H7.5 L5.5 16 V5.5 Z'/><path d='M5.5 11 H18.5'/><path d='M8 18 L6 21 M16 18 L18 21'/><path d='M9.4 14.2 L8.95 14.98 L8.05 14.98 L7.6 14.2 L8.05 13.42 L8.95 13.42 Z M16.4 14.2 L15.95 14.98 L15.05 14.98 L14.6 14.2 L15.05 13.42 L15.95 13.42 Z' fill='black' stroke='none'/>"
 };

@@ -90,7 +90,7 @@ html { font-size: clamp(93.75%, 0.48vw + 50%, 112.5%); }
   padding-left: 38px;
 }
 
-/* "How it works" reopens the intro window; on small laptops only its icon stays. */
+/* "How it works" reopens the guide; on small laptops only its icon stays. */
 .about-btn { --_h: 40px; --_fs: var(--vc-font-size-sm); }
 .theme-toggle.vc-icon-button { --_h: 40px; }
 
@@ -283,6 +283,9 @@ html { font-size: clamp(93.75%, 0.48vw + 50%, 112.5%); }
   .timeline { flex-basis: 100%; order: 10; }
   .run-switch { width: 100%; }
   .run-switch button { flex: 1 1 0; padding: 0 6px; }
+  /* The caption, its situation line, the views and the wrapped legend take more of a phone's map
+     panel: it is taller, so the drawing keeps a usable size. */
+  .map-panel { height: max(66vh, 430px); }
 }
 
 @media (max-width: 380px) {

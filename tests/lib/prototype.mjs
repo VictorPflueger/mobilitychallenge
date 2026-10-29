@@ -54,7 +54,40 @@ export const COLOUR_PAIRS = [
   ["Legend and Method tab: platforms' outline on the surface", "border-strong", "surface", "mark"],
   ["Legend and Method tab: a train behind its timetable, its outline", "warning-text", "surface", "mark"],
   ["Legend and Method tab: a blocked train, its outline and dashed ring", "danger-solid", "surface", "mark"],
-  ["Legend and Method tab: a train on time", "text", "surface", "mark"]
+  ["Legend and Method tab: a train on time", "text", "surface", "mark"],
+  // The situation line in the map's caption (on the surface).
+  ["Situation line: gridlock, trains held back", "danger-text", "surface", "text"],
+  ["Situation line: all trains arrived", "success-text", "surface", "text"],
+  ["Situation line: trains waiting", "text-muted", "surface", "text"],
+  ["Situation line: its marker, gridlock", "danger-solid", "surface", "mark"],
+  ["Situation line: its marker, all arrived", "success-solid", "surface", "mark"],
+  // The Story tab (on the surface): the moments' stripes, the moment on screen, the shares.
+  ["Story: a collision, a gridlock or a station passed, its stripe", "danger-solid", "surface", "mark"],
+  ["Story: a wait, its stripe", "warning-text", "surface", "mark"],
+  ["Story: a stop served, an arrival, its stripe", "success-solid", "surface", "mark"],
+  ["Story: the moment on screen, its ink frame", "text", "surface", "mark"],
+  ["Story: a moment's step and text", "text-muted", "surface", "text"],
+  ["Story: the run's figures on their quiet fill", "text", "bg-subtle", "text"],
+  ["Story: the figures' names, a moment under the pointer", "text-muted", "bg-subtle", "text"],
+  ["Story: a failure's share of the points", "danger-text", "surface", "text"],
+  ["Story: a delay's share of the points", "warning-text", "surface", "text"],
+  // The guide (Vici's dialog on surface-raised; its chapter list on bg-subtle).
+  ["Guide: chapter text and headings", "text", "surface-raised", "text"],
+  ["Guide: secondary text, figure captions", "text-muted", "surface-raised", "text"],
+  ["Guide: a chapter's name in the list", "text-muted", "bg-subtle", "text"],
+  ["Guide: the open chapter in the list", "text", "bg-subtle", "text"],
+  ["Guide: icon cells (ink on sunken)", "text", "bg-sunken", "text"],
+  ["Guide: the pieces drawing's labels", "text-muted", "surface-raised", "text"],
+  ["Guide: the pieces drawing's leader lines", "text-muted", "surface-raised", "mark"],
+  ["Guide: the pieces drawing's tracks", "neutral-solid", "surface-raised", "mark"],
+  ["Guide: the pieces drawing's platforms", "border-strong", "surface-raised", "mark"],
+  ["Guide: the dashed cell", "text-muted", "bg-sunken", "mark"],
+  ["Guide: numbered markers (a phone)", "surface-raised", "text", "text"],
+  ["Guide: a blocked train's arrow in the scenes", "danger-solid", "bg-sunken", "mark"],
+  ["Guide: the network drawing's names", "text", "bg-sunken", "text"],
+  ["Guide: penalties, a failure's marker", "danger-solid", "surface-raised", "mark"],
+  ["Guide: penalties, a delay's marker", "warning-text", "surface-raised", "mark"],
+  ["Guide: the leaderboard's dashed bar", "text-muted", "surface", "mark"]
 ];
 
 /**
@@ -73,23 +106,42 @@ export const SEPARATIONS = [
 
 /**
  * The hexagon test's tour of the app (tests/hexagon.mjs): its main states, the dialogs and views on
- * the way. The page has just been opened without SKIP_INTRO, so the intro opens by itself.
+ * the way. The page has just been opened without SKIP_INTRO, so the guide opens by itself: all seven
+ * chapters, the AI label's note in it, and the guide on a phone (the pieces drawing with numbered
+ * markers and a key, the timetable in blocks). Then the runs with their story and situation line.
  * visit(name, { settle }) checks the page as it is, settle ms (250) after the step.
  */
 export async function hexagonTour(page, visit) {
   await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
-  await page.waitForSelector(".intro-modal", { timeout: 10000 });
-  await visit("intro");
+  await page.waitForSelector(".guide-modal", { timeout: 10000 });
+  const chapters = await page.$$eval(".guide-nav-btn", (bs) => bs.map((b) => b.dataset.chapter));
+  for (const id of chapters) {
+    await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
+    await visit(`the guide: ${id}`);
+  }
+  await page.click('.guide-nav-btn[data-chapter="results"]');
+  await page.click('.guide-result[data-run="estimate"] .ai-label');
+  await visit("the guide: the AI label's note");
   await page.keyboard.press("Escape");
-  await page.waitForSelector(".intro-modal", { state: "detached", timeout: 5000 });
-  await visit("optimized run at the start");
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 360, height: 740 });
+  for (const id of ["network", "timetable", "score", "results"]) {
+    await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
+    await visit(`the guide on a phone: ${id}`);
+  }
+  await page.setViewportSize(size);
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
+  await visit("optimized run at the start, its story");
   await page.click("#btn-play");
   await page.waitForTimeout(1200);
   await page.click("#btn-play");
   await visit("optimized run after playing");
   await page.click('.run-switch button[data-run="baseline"]');
   await page.evaluate(() => window.dispatchLab.seek(600));
-  await visit("baseline at step 600 (blocked trains)");
+  await visit("baseline at step 600: gridlock, its story");
+  await page.click('.moment[data-kind="collision"]');
+  await visit("a story moment picked: its train ringed");
   await page.click('.map-views button:nth-child(2)');
   await visit("around the Hbf");
   await page.click("#tab-trains");
@@ -102,14 +154,15 @@ export async function hexagonTour(page, visit) {
   await page.evaluate(() => document.querySelector(".method-symbols").scrollIntoView());
   await visit("method: reading the map");
   await page.click('.run-switch button[data-run="estimate"]');
-  await page.evaluate(() => window.dispatchLab.seek(1000));
+  await page.evaluate(() => window.dispatchLab.seek(100));
   await page.click("#tab-score");
-  await visit("estimate at step 1,000 (stuck trains)");
+  await visit("estimate at step 100 (trains waiting at their entry)");
   await page.click(".compare-row[data-run='estimate'] .ai-label");
   await visit("the AI label's note");
   await page.keyboard.press("Escape");
   await page.click("#btn-end");
-  await visit("estimate at the end");
+  await page.click("#tab-story");
+  await visit("estimate at the end, its story");
 }
 
 /**

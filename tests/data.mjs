@@ -23,7 +23,9 @@ const theirs = readFileSync(path.join(challenge, "data/maps/neufrankfurt_19agent
 check(ours.equals(theirs), `data/neufrankfurt_19agents.json is byte for byte the challenge's map (${ours.length} bytes, sha256 ${sha(ours).slice(0, 16)}…; challenge ${theirs.length} bytes, ${sha(theirs).slice(0, 16)}…)`);
 const digest = sha(theirs);
 const plan = JSON.parse(readFileSync(path.join(ROOT, "data/planner_actions.json"), "utf8"));
-check(plan.map_sha256 === digest, "the recorded plan (data/planner_actions.json) was made on that map");
+check(plan.map_sha256 === digest, "the optimized run's plan (data/planner_actions.json) was made on that map");
+const estimate = JSON.parse(readFileSync(path.join(ROOT, "data/estimate_actions.json"), "utf8"));
+check(estimate.map_sha256 === digest, "the estimate's plan (data/estimate_actions.json) was made on that map");
 const reference = JSON.parse(readFileSync(path.join(ROOT, "data/reference.json"), "utf8"));
 check(reference.map_sha256 === digest, `the Python runner's scores the page checks itself against (data/reference.json) were computed on that map`);
 for (const name of ["baseline", "estimate", "optimized"]) {

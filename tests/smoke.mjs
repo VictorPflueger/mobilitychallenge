@@ -7,8 +7,13 @@
 //   panel     the tabs by keyboard, the trains table, a train's timetable, the events and a jump
 //             to one, the method
 //   map       views, the legend strip, a train picked on the map
+//   guide     opens on a first visit; its seven chapters by Next, Back and the chapter list; the
+//             drawings, the penalties and the four results with the Python runner's scores; a
+//             run's Watch button plays that run with its story beside it
+//   story     the Story tab first; a run's moments jump to their step, the map's situation line
+//             (gridlock, waiting trains, all arrived), the way on to the next run
 //   once      the theme toggle and the speed buttons act once per click (vici.js acts on some
-//             controls by itself), the intro opens on a first visit, closes with Escape, reopens
+//             controls by itself), the guide closes with Escape, is remembered and reopens
 //   motion    with reduced motion the trains jump from cell to cell (no animation between steps)
 //   failure   a missing data file ends on the boot screen with the reason; a score the Python
 //             runner did not compute raises a banner and loses its "same score" note
@@ -16,6 +21,7 @@
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, wanted, NETWORK_NOISE } from "./lib/harness.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { traceFacts } from "./lib/trace-facts.mjs";
 
 const reference = JSON.parse(readFileSync(path.join(APP_ROOT, "data/reference.json"), "utf8"));
 const results = [];
@@ -50,6 +56,8 @@ try {
     const { context, page, errors, external } = await open();
     await ready(page);
     const scores = await page.evaluate(() => Object.fromEntries([...window.dispatchLab.runs].map(([id, r]) => [id, { score: r.score, steps: r.steps }])));
+    check(await page.getAttribute("#tab-story", "aria-selected") === "true", "boot: the panel opens on the Story tab");
+    await page.click("#tab-score");
     for (const id of ["baseline", "estimate", "optimized"]) {
       check(scores[id].score === reference.runs[id].reward && scores[id].steps === reference.runs[id].steps,
         `boot: the browser's ${id} run scores ${scores[id].score} in ${scores[id].steps} steps; the Python runner ${reference.runs[id].reward} in ${reference.runs[id].steps}`);
@@ -156,8 +164,12 @@ try {
     check(await text(page, "#kpi-score-value") === "−74,022.6", "runs: the baseline ends at −74,022.6");
     check(await text(page, "#kpi-trains-value") === "7 / 19", `runs: 7 baseline trains arrive (${await text(page, "#kpi-trains-value")})`);
     await page.click('.run-switch button[data-run="estimate"]');
-    check(await text(page, "#kpi-score-value") === "−36,576.6", "runs: the estimate ends at −36,576.6");
-    check(await text(page, "#kpi-best-value") === "+797.4", `runs: the estimate is 797.4 better than the leaderboard (${await text(page, "#kpi-best-value")})`);
+    await page.click("#btn-end");
+    const est = reference.runs.estimate.reward;
+    const gap = est - -37374;
+    check(await text(page, "#kpi-score-value") === fmt(est), `runs: the estimate ends at ${fmt(est)} (${await text(page, "#kpi-score-value")})`);
+    check(await text(page, "#kpi-best-value") === `${gap > 0 ? "+" : ""}${fmt(gap)}`, `runs: the estimate's gap to the leaderboard is ${fmt(gap)} (${await text(page, "#kpi-best-value")})`);
+    check(await text(page, "#kpi-trains-value") === "19 / 19" && await stepOnScreen(page) === reference.runs.estimate.steps, `runs: in the estimate every train arrives, by step ${reference.runs.estimate.steps} (${await text(page, "#kpi-trains-value")})`);
     await page.waitForTimeout(600);
     check(new URL(page.url()).searchParams.get("run") === "estimate", "runs: the address remembers the run");
     check(!errors.length, `runs: no console errors (${errors.join(" | ")})`);
@@ -226,15 +238,20 @@ try {
   if (wanted("once")) {
     const { context, page, errors } = await open({ intro: true });
     await ready(page);
-    check(await page.isVisible(".intro-modal"), "once: the intro opens on a first visit");
+    await page.waitForSelector(".guide-modal", { timeout: 5000 });
     await page.keyboard.press("Escape");
-    await page.waitForSelector(".intro-modal", { state: "detached", timeout: 5000 });
-    check(await page.evaluate(() => localStorage.getItem("dl.introSeen")) === "1", "once: closing the intro remembers it");
+    await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
+    check(await page.evaluate(() => localStorage.getItem("dl.guideSeen")) === "1", "once: closing the guide remembers it");
+    await page.reload();
+    await ready(page);
+    await page.waitForTimeout(300);
+    check(!(await page.isVisible(".guide-modal")), "once: on the next visit the guide stays closed");
     await page.click("#btn-about");
-    check(await page.isVisible(".intro-modal"), "once: How it works reopens it");
-    await page.click('.intro-modal button:has-text("Play the optimized run")');
+    check(await page.isVisible(".guide-modal"), "once: How it works reopens it");
+    await page.click('.guide-nav-btn[data-chapter="results"]');
+    await page.click('.guide-watch[data-run="optimized"]');
     await page.waitForTimeout(400);
-    check(await text(page, ".status-pill .text") === "Playing", "once: the intro's button plays the optimized run");
+    check(await text(page, ".status-pill .text") === "Playing" && (await text(page, "#map-run")).startsWith("Optimized") && await page.getAttribute("#tab-story", "aria-selected") === "true", "once: the guide's Watch button plays the optimized run, with its story");
     await page.click("#btn-play");
     const theme0 = await page.getAttribute("html", "data-theme");
     await page.click(".theme-toggle");
@@ -249,6 +266,95 @@ try {
     const speed16 = await pressed();
     check(speed1 === "true,false,false" && speed16 === "false,false,true", `once: the speed buttons keep one pressed per click (${speed1} → ${speed16})`);
     check(!errors.length, `once: no console errors (${errors.join(" | ")})`);
+    await context.close();
+  }
+
+  if (wanted("guide")) {
+    const { context, page, errors } = await open({ intro: true });
+    await ready(page);
+    await page.waitForSelector(".guide-modal", { timeout: 5000 });
+    check(await page.isVisible(".guide-modal"), "guide: it opens by itself on a first visit");
+    const chaptersCount = await page.$$eval(".guide-nav-btn", (bs) => bs.length);
+    check(chaptersCount === 7, `guide: seven chapters (${chaptersCount})`);
+    const chapter = () => page.getAttribute(".guide-chapter", "data-chapter");
+    check(await chapter() === "challenge" && (await text(page, ".guide-title")).includes("19 trains"), "guide: it starts with the challenge, 19 trains");
+    const labels = await page.$$eval(".diagram-network .station-label", (els) => els.map((e) => e.textContent));
+    check(labels.includes("Hbf") && labels.length >= 8, `guide: chapter 1 draws the real network with its stations (${labels.join(", ")})`);
+    check(await page.evaluate(() => document.activeElement?.classList.contains("guide-next")), "guide: the focus starts on Next");
+    await page.click(".guide-next");
+    check(await chapter() === "network" && await page.isVisible(".diagram-pieces"), "guide: Next opens chapter 2 with the pieces of a railway");
+    check(await page.evaluate(() => document.activeElement?.id === "guide-title"), "guide: the focus moves to the new chapter's heading");
+    await page.click(".guide-back");
+    check(await chapter() === "challenge" && await page.isDisabled(".guide-back"), "guide: Back returns to chapter 1, where Back is off");
+    await page.click('.guide-nav-btn[data-chapter="timetable"]');
+    const rows = await page.$$eval(".guide-timetable tbody tr", (r) => r.length);
+    check(await chapter() === "timetable" && rows === 3, `guide: the chapter list opens chapter 3, with an example timetable (${rows} rows)`);
+    await page.click('.guide-nav-btn[data-chapter="decisions"]');
+    const scenes = await page.$$eval(".guide-scenes > li", (l) => l.map((x) => x.dataset.scene).join(","));
+    const commands = await page.$$eval(".guide-commands > li", (l) => l.length);
+    check(scenes === "free,taken,deadlock" && commands === 5, `guide: chapter 4 shows the five commands and three scenes (${commands}; ${scenes})`);
+    await page.click('.guide-nav-btn[data-chapter="score"]');
+    const penalties = await page.$$eval(".guide-penalties tbody tr", (r) => r.length);
+    check(penalties === 7 && (await text(page, ".guide-penalties")).includes("936 × speed"), `guide: chapter 5 lists the seven penalties (${penalties})`);
+    await page.click('.guide-nav-btn[data-chapter="results"]');
+    const cards = await page.$$eval(".guide-result", (l) => l.map((x) => [x.dataset.run, x.querySelector(".guide-result-score").textContent]));
+    const want = [["baseline", fmt(reference.runs.baseline.reward)], ["best", "−37,374"], ["estimate", fmt(reference.runs.estimate.reward)], ["optimized", fmt(reference.runs.optimized.reward)]];
+    check(JSON.stringify(cards) === JSON.stringify(want), `guide: chapter 6 puts the four results with the Python runner's scores (${cards.map((c) => c.join(" ")).join(", ")})`);
+    check(await page.isVisible('.guide-result[data-run="estimate"] .ai-label'), "guide: the estimate carries the AI label");
+    await page.click('.guide-result[data-run="estimate"] .ai-label');
+    const tip = await page.evaluate(() => {
+      const t = [...document.querySelectorAll(".ai-tip")].find((x) => !x.hidden);
+      if (!t) return { shown: false };
+      const r = t.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(20, r.height / 2));
+      return { shown: true, onTop: t.contains(hit), inDialog: !!t.closest("dialog"), text: t.textContent.slice(0, 60) };
+    });
+    check(tip.shown && tip.onTop && tip.inDialog, `guide: the AI label opens its note on top of the guide (${JSON.stringify(tip)})`);
+    await page.keyboard.press("Escape");
+    check(await page.isVisible(".guide-modal") && !(await page.isVisible(".ai-tip")), "guide: Escape closes the note, and the guide stays open");
+    await page.click('.guide-nav-btn[data-chapter="page"]');
+    check((await text(page, ".guide-next")).includes("Watch the baseline"), "guide: the last chapter offers to watch the baseline");
+    await page.click(".guide-next");
+    await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
+    await page.waitForTimeout(400);
+    check((await text(page, "#map-run")).startsWith("Baseline") && await text(page, ".status-pill .text") === "Playing" && await page.getAttribute("#tab-story", "aria-selected") === "true", "guide: Watch the baseline closes the guide and plays the baseline, its story beside it");
+    await page.click("#btn-play");
+    check(!errors.length, `guide: no console errors (${errors.join(" | ")})`);
+    await context.close();
+  }
+
+  if (wanted("story")) {
+    const { context, page, errors } = await open({ url: "?run=baseline&step=0" });
+    await ready(page);
+    const base = traceFacts("baseline");
+    check(await page.getAttribute("#tab-story", "aria-selected") === "true", "story: the Story tab comes first");
+    const kinds = await page.$$eval(".story-moments .moment", (l) => l.map((m) => m.dataset.kind));
+    check(kinds.includes("collision") && kinds.includes("gridlock") && kinds[kinds.length - 1] === "end", `story: the baseline's moments run from the first train to the end (${kinds.join(", ")})`);
+    await page.click('.moment[data-kind="gridlock"]');
+    check(await stepOnScreen(page) === base.gridlockFrom, `story: the gridlock moment jumps to step ${base.gridlockFrom} (${await stepOnScreen(page)})`);
+    const line = await text(page, "#map-situation .sit-long");
+    check(line.startsWith(`Gridlock since step ${base.gridlockFrom}`) && await page.getAttribute("#map-situation", "data-tone") === "danger", `story: the map says so (${line})`);
+    check(await page.getAttribute('.moment[data-kind="gridlock"]', "data-state") === "current", "story: the moment on screen is marked");
+    await page.evaluate((s) => window.dispatchLab.seek(s), base.gridlockFrom - 30);
+    check(!(await text(page, "#map-situation .sit-long")).startsWith("Gridlock"), "story: before the gridlock, the map does not say gridlock");
+    await page.click(".story-next");
+    check((await text(page, "#map-run")).startsWith("Estimate"), "story: the next button moves on to the estimate");
+    const est = traceFacts("estimate");
+    const wait = await text(page, '.moment[data-kind="wait"]');
+    check(wait.includes(`${est.longestWait.wait} steps`), `story: the estimate's longest wait, ${est.longestWait.wait} steps (${wait.slice(0, 90)})`);
+    await page.evaluate(() => window.dispatchLab.seek(100));
+    check(/trains? waits? at (its|their) entry$/.test(await text(page, "#map-situation .sit-long")), `story: at step 100 the map says trains wait at their entry (${await text(page, "#map-situation .sit-long")})`);
+    await page.click(".story-next");
+    const entered = await page.$eval('.moment[data-kind="enter"]', (b) => b.textContent);
+    await page.click('.moment[data-kind="enter"]');
+    const ringed = await page.$$eval('.train[data-selected="true"]', (l) => l.map((g) => g.dataset.train));
+    check(await page.getAttribute("#tab-story", "aria-selected") === "true" && ringed.length === 1 && await stepOnScreen(page) === Number(entered.match(/Step ([\d,]+)/)[1].replace(/,/g, "")),
+      `story: a moment with a train jumps to its step and rings the train on the map, and the story stays (train ${ringed.join(", ")})`);
+    await page.click('.moment[data-kind="all-arrived"]');
+    check(await text(page, "#map-situation .sit-long") === "All 19 trains have arrived" && await page.getAttribute("#map-situation", "data-tone") === "success", "story: in the optimized run the map says when all trains have arrived");
+    await page.click(".story-next");
+    check(await page.getAttribute("#tab-score", "aria-selected") === "true", "story: after the optimized run, the next button compares all scores");
+    check(!errors.length, `story: no console errors (${errors.join(" | ")})`);
     await context.close();
   }
 
@@ -286,6 +392,7 @@ try {
     await wrong.context.route(/\/data\/reference\.json$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(altered) }));
     await wrong.page.reload();
     await ready(wrong.page);
+    await wrong.page.click("#tab-score");
     const banner = await wrong.page.isVisible(".banner");
     const bannerText = banner ? await text(wrong.page, ".banner") : "";
     const notes = await wrong.page.$$eval(".compare-note.verified", (els) => els.map((e) => e.closest(".compare-row")?.dataset.run));

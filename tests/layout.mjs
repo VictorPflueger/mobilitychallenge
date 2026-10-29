@@ -1,19 +1,23 @@
-// The layout from a 1920 × 1080 projector down to a phone: no sideways scrolling, the header's badges
+// The layout from a 1920 × 1080 projector over a tablet down to a phone: no sideways scrolling, the header's badges
 // never run into the KPI tiles, the control bar keeps one row on laptops and projectors and its step
 // label is never cut, the map keeps a usable size, the caption, the views and the legend never cover
 // each other or the drawing, station names never cover each other and stay on screen, and every
 // control is large enough to hit: 40 × 40 px at least (WCAG 2.5.8 asks 24; projector use asks more),
-// 44 px for the main ones. Each viewport is checked at four moments of a run (the start of the
-// optimized run, the baseline in its jam, the estimate at its end with a train's timetable open, and
-// the view around the Hbf with a train picked).
+// 44 px for the main ones. Each viewport is checked at five moments of a run (the start of the
+// optimized run with its story, the baseline in its gridlock, the estimate with trains waiting at
+// their entry, the estimate at its end with a train's timetable open, and the view around the Hbf
+// with a train picked), then in each of the guide's seven chapters: the dialog inside the window,
+// nothing in a chapter wider than the chapter (no sideways scrolling), its drawings' labels large
+// enough to read (10 px at least) and its buttons large enough to hit.
 // Usage: node tests/layout.mjs [viewport ...]   (e.g. 1280x720)
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, ONLY, outDir } from "./lib/harness.mjs";
 import path from "node:path";
 
-const VIEWPORTS = [[1920, 1080], [1600, 900], [1536, 864], [1366, 768], [1280, 720], [1024, 768], [390, 844], [320, 640]];
+const VIEWPORTS = [[1920, 1080], [1600, 900], [1536, 864], [1366, 768], [1280, 720], [1024, 768], [768, 1024], [390, 844], [320, 640]];
 const STATES = [
-  { name: "optimized at the start", url: "?run=optimized&step=0" },
-  { name: "baseline in its jam", url: "?run=baseline&step=600" },
+  { name: "optimized at the start, its story", url: "?run=optimized&step=0", situation: false },
+  { name: "baseline in its gridlock", url: "?run=baseline&step=600", situation: "Gridlock" },
+  { name: "estimate with trains waiting at their entry", url: "?run=estimate&step=100", situation: "wait at their entry" },
   { name: "estimate at the end, a timetable open", url: "?run=estimate&step=1248", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="3"] .train-pick'); } },
   { name: "around the Hbf, a train picked", url: "?run=baseline&step=700", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } }
 ];
@@ -52,7 +56,7 @@ function inPage() {
   for (const [name, r] of [["caption", cap], ["views", views], ["legend", legend]]) if (overlap(map, r)) out.problems.push(`the ${name} covers the drawing`);
   if (!legend) out.problems.push("the legend is missing");
   // Station names: inside the drawing, never on top of each other.
-  const labels = [...document.querySelectorAll(".station-label")].map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom }; });
+  const labels = [...document.querySelectorAll(".map-svg .station-label")].map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom }; });
   if (map) {
     for (const a of labels) if (a.l < map.l - 1 || a.r > map.r + 1 || a.t < map.t - 1 || a.b > map.b + 1) out.problems.push(`the station name "${a.text}" is cut off by the edge of the map`);
   }
@@ -89,6 +93,65 @@ function inPage() {
       out.small.push(`${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${el.className && typeof el.className === "string" ? `.${el.className.trim().split(/\s+/).join(".")}` : ""} "${(el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 30)}" ${Math.round(r.width)}×${Math.round(r.height)} (needs ${need})`);
     }
   }
+  // The run's title and the situation line under it, when there is one: never cut.
+  const cut = (el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+  const title = document.querySelector("#map-run");
+  if (title && cut(title)) out.problems.push(`the run's title is cut ("${title.textContent}")`);
+  const line = document.querySelector("#map-situation");
+  const shownText = line && !line.hidden ? [...line.querySelectorAll(".sit-text")].filter((t) => getComputedStyle(t).display !== "none") : [];
+  out.situation = shownText.map((t) => t.textContent).join("");
+  if (line && !line.hidden && shownText.length !== 1) out.problems.push(`the situation line shows ${shownText.length} texts`);
+  for (const t of shownText) if (cut(t)) out.problems.push(`the situation line is cut ("${t.textContent}")`);
+  return out;
+}
+
+/** The guide's dialog with one chapter open. */
+function inGuide() {
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const out = { problems: [], small: [], chapter: document.querySelector(".guide-chapter")?.dataset.chapter, smallest: Infinity };
+  const dialog = document.querySelector(".guide-modal");
+  if (!dialog) { out.problems.push("the guide is not open"); return out; }
+  const d = dialog.getBoundingClientRect();
+  if (d.left < -1 || d.top < -1 || d.right > vw + 1 || d.bottom > vh + 1) out.problems.push(`the dialog leaves the window (${Math.round(d.left)},${Math.round(d.top)}–${Math.round(d.right)},${Math.round(d.bottom)} of ${vw}×${vh})`);
+  const scroll = document.querySelector(".guide-scroll");
+  const sb = scroll.getBoundingClientRect();
+  const pad = getComputedStyle(scroll);
+  // the chapter's content box: its padding stays clear
+  const s = { left: sb.left + parseFloat(pad.paddingLeft), right: sb.right - parseFloat(pad.paddingRight) - (scroll.offsetWidth - scroll.clientWidth), height: sb.height };
+  if (scroll.scrollWidth > scroll.clientWidth + 1) out.problems.push(`the chapter scrolls sideways (${scroll.scrollWidth} px for ${scroll.clientWidth} px)`);
+  if (s.height < 160) out.problems.push(`the chapter has too little room (${Math.round(s.height)} px high)`);
+  for (const el of scroll.querySelectorAll(".guide-chapter > *, .guide-chapter figure, .guide-chapter table, .guide-chapter svg, .guide-chapter li")) {
+    const r = el.getBoundingClientRect();
+    if (r.width && (r.left < s.left - 1 || r.right > s.right + 1)) out.problems.push(`${el.tagName.toLowerCase()}.${String(el.className.baseVal ?? el.className).split(" ")[0]} is wider than the chapter (${Math.round(r.left)}–${Math.round(r.right)} of ${Math.round(s.left)}–${Math.round(s.right)})`);
+    if (el.matches("p, li, td, th, strong") && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== "visible") out.problems.push(`text is cut in ${el.tagName.toLowerCase()} ("${el.textContent.trim().slice(0, 30)}")`);
+  }
+  // Labels in the drawings: their rendered size.
+  for (const t of scroll.querySelectorAll("svg text")) {
+    const r = t.getBoundingClientRect();
+    if (!r.height) continue;
+    const px = parseFloat(getComputedStyle(t).fontSize) * (t.ownerSVGElement.getScreenCTM()?.a || 1);
+    out.smallest = Math.min(out.smallest, px);
+    if (px < 9.95) out.problems.push(`the label "${t.textContent.slice(0, 24)}" is drawn at ${px.toFixed(1)} px`);
+  }
+  // All seven chapter buttons in view: the list never needs scrolling sideways.
+  const side = dialog.querySelector(".guide-side");
+  if (side && side.scrollWidth > side.clientWidth + 1) out.problems.push(`the chapter list scrolls sideways (${side.scrollWidth} px for ${side.clientWidth} px)`);
+  // The side nav and the footer inside the dialog; the footer's buttons visible.
+  for (const sel of [".guide-side", ".vc-dialog__footer", ".guide-next", ".guide-back", ".vc-dialog__header"]) {
+    const el = dialog.querySelector(sel);
+    const r = el?.getBoundingClientRect();
+    if (!r || !r.width) { out.problems.push(`${sel} is missing`); continue; }
+    if (r.left < d.left - 1 || r.right > d.right + 1 || r.top < d.top - 1 || r.bottom > d.bottom + 1) out.problems.push(`${sel} leaves the dialog`);
+  }
+  for (const el of dialog.querySelectorAll("button")) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || el.closest("[hidden]")) continue;
+    const need = el.matches(".guide-nav-btn, .guide-next, .dialog-close") ? 44 : 40;
+    // the chapter buttons: 44 px high, and 40 wide on the smallest phones so that all seven fit
+    const needW = el.matches(".guide-nav-btn") && vw <= 360 ? 40 : need;
+    if (r.height < need - 0.5 || r.width < needW - 0.5) out.small.push(`button.${el.className.split(" ").join(".")} "${(el.getAttribute("aria-label") || el.textContent).trim().slice(0, 30)}" ${Math.round(r.width)}×${Math.round(r.height)} (needs ${need})`);
+  }
   return out;
 }
 
@@ -105,11 +168,30 @@ try {
       if (s.act) await s.act(page);
       await page.waitForTimeout(350);
       const r = await page.evaluate(inPage);
+      if (s.situation === false && r.situation) r.problems.push(`a situation line where none belongs ("${r.situation}")`);
+      if (s.situation && !r.situation.includes(s.situation)) r.problems.push(`the situation line should say "${s.situation}" ("${r.situation}")`);
       for (const p of r.problems) { failures.push(`${w}×${h}, ${s.name}: ${p}`); bad += 1; }
       for (const p of r.small) { failures.push(`${w}×${h}, ${s.name}: target too small: ${p}`); bad += 1; }
       await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-${s.name.replace(/[^a-z0-9]+/gi, "-")}.png`) });
     }
-    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states${bad ? `, ${bad} problem(s)` : ""}`);
+    // The guide, chapter by chapter.
+    await page.goto(server.base + "?run=optimized&step=0");
+    await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
+    await page.click("#btn-about");
+    await page.waitForSelector(".guide-modal", { timeout: 5000 });
+    const ids = await page.$$eval(".guide-nav-btn", (bs) => bs.map((b) => b.dataset.chapter));
+    let smallest = Infinity;
+    for (const id of ids) {
+      await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
+      await page.waitForTimeout(150);
+      const g = await page.evaluate(inGuide);
+      if (g.chapter !== id) g.problems.push(`chapter ${id} did not open (${g.chapter})`);
+      smallest = Math.min(smallest, g.smallest);
+      for (const p of g.problems) { failures.push(`${w}×${h}, guide chapter ${id}: ${p}`); bad += 1; }
+      for (const p of g.small) { failures.push(`${w}×${h}, guide chapter ${id}: target too small: ${p}`); bad += 1; }
+      await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-guide-${id}.png`) });
+    }
+    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states, ${ids.length} chapters of the guide (smallest label ${smallest.toFixed(1)} px)${bad ? `, ${bad} problem(s)` : ""}`);
     await context.close();
   }
 } finally {

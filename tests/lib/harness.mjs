@@ -81,7 +81,7 @@ export async function serveStatic(root, port) {
 export const NETWORK_NOISE = /Failed to load resource|net::ERR_|ERR_BLOCKED_BY_CLIENT|ERR_FAILED/;
 
 /**
- * Init script for browser contexts: marks the intro window as seen, so it does not open by itself
- * and cover the controls. The smoke suite's "intro" case runs without it.
+ * Init script for browser contexts: marks the guide as seen, so it does not open by itself and
+ * cover the controls. The smoke suite's "guide" and "once" cases and the hexagon tour run without it.
  */
-export const SKIP_INTRO = () => { try { localStorage.setItem("dl.introSeen", "1"); } catch { /* file:// or blocked storage */ } };
+export const SKIP_INTRO = () => { try { localStorage.setItem("dl.guideSeen", "1"); } catch { /* file:// or blocked storage */ } };

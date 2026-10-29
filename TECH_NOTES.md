@@ -32,19 +32,26 @@ Each reward is kept with its Python type (int or float), because the score is a 
 
 ## 3. Python semantics the scores depend on
 
-Matching flatland's floats to the last digit needed CPython's own behaviour in four places (`js/engine/py.js`):
+Matching flatland's floats to the last digit needed CPython's own behaviour in three places (`js/engine/py.js`):
 
 - **`sum()`** in CPython 3.13: an exact integer fast path, the first float added plainly, later floats with Neumaier compensation, the compensation added at the end. The runner's total and `cumulate()` both use it; the baseline's score is −74,022.59999999998, not −74,022.6.
 - **Set iteration order** for small ints (the hash table's 8 slots, linear probes, perturbation, resizing): `MotionCheck` iterates a set of train handles when it stops deadlocked trains, and the order decides who stops first.
 - **`round()`** rounds half to even (`1 / 0.4` = 2.5 → 2).
-- **Enum comparison**: flatland's `RailEnvActions` (a `fastenum`) never equals a plain int. The estimate's Python reference compares an int action with `RailEnvActions.MOVE_LEFT`, which is always false, so its occupancy check always looks at the cell straight ahead; the port does the same (`compareActions = false`).
+
+(A fourth trap, outside the engine: flatland's `RailEnvActions` is a `fastenum` that never equals a plain int and cannot be passed to `int()`; the estimate's planner records `action.value`.)
 
 `tests/engine.mjs python` checks the first three against CPython on 7,000 random inputs.
 
 ## 4. The controllers (`js/controllers/`)
 
 - **Baseline**: `OrderedController.act` on a tree observation of depth 2; only the children's `dist_min_to_target` at depth 1 matter. The smallest distance of at least 0 wins (`min_gt` tests ≥, whatever its docstring says), ties go to the last index, and with no branch at all (every distance infinite) the last index is the backward one, which maps to STOP_MOVING.
-- **Estimate**: `tools/estimate_controller.py` is the Python reference, ported to `estimate.js`. Rules on top of the baseline's routing: on a platform of the next timetabled stop, brake until stopped and stay until the earliest departure; never move into a cell another train occupies. It scores −36,576.6, 797.4 points from the leaderboard's −37,374. The leaderboard entry's code is not public; this is a reconstruction of the kind of controller that lands there, and the page labels it as Claude's.
+- **Estimate**: `tools/estimate_planner.py` (`EstimatePlanner`), planned in Python before the first step and replayed by `replay.js` from `data/estimate_actions.json`. The leaderboard entry's code is not public; this is a reconstruction of the kind of solution that lands in its range, and the page labels it as Claude's. It solves the first half of the challenge and ignores the second:
+  - *Route*: through a platform of each timetabled stop, in order, then to the destination, the shortest way (breadth-first search over cell and direction, never through the destination cell before the end and never twice through the same cell and direction; where that fails, the shortest way to the destination alone).
+  - *Booking*: trains are planned one after another by earliest departure. A train enters only at a step from which its whole route is free: every resource on it (a cell, or one level of a level-free crossing) unbooked by any other train within one step of when this train holds it. Until then it waits off the map.
+  - *Timing* (exact, checked step by step): a train is ready at step max(earliest departure, 1) and can enter from the next step; a train at speed 1 moves one cell per step, an S-Bahn (speed 0.5) one cell every second step; the action given at step *t* is the branch to take out of the cell the train stands in when *t* begins; it reaches its destination at entry + cells × steps per cell and leaves the map there.
+  - *Result*: 1,043 steps, all 19 trains arrive, no train is ever held back; all 59 stops are passed without stopping (−29,452.8) and the trains arrive 3,036 steps late in all (−3,036.0): −32,488.8, 4,885.2 points better than −37,374. The longest wait at an entry is 761 steps (train 2).
+  - *Why not the first estimate*: the page first showed a rule-based controller (−36,576.6) that stopped at stations and never drove into an occupied cell. From step 391 on nothing moved any more: 16 trains stood in a deadlock it could not see coming, so on the page the run looked frozen. A dispatcher that books whole routes cannot jam, and every train visibly runs through to its destination.
+  - `tools/check_estimate.py` runs the planner through the challenge's runner, checks after every step that every train is where its booking says, that every train arrives at its planned step, and that the actions equal `data/estimate_actions.json`.
 - **Optimized**: `PlannerController(n_orders=1, lns_iters=40, seed=2)` with the full observation (`FullEnvObservation`) plans every train through its stops in time and space before the first step, then improves the plan by large-neighbourhood search; about two minutes in Python. Its 597 steps of actions are in `data/planner_actions.json`; `replay.js` hands them to the engine, which simulates and scores them like any other run. `tools/check_plan.py` reruns the planner and compares the actions.
 
 ## 5. What the page adds on top (`js/sim.js`)
@@ -55,19 +62,24 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 
 ## 6. Build decisions
 
-- **Replay, not a port of the planner.** The planner is several hundred lines of search over a time-expanded network and takes two minutes in Python; the page would wait or need a worker and a port that is hard to verify. Replaying its actions through the verified engine shows the same run and the same score, and `check_plan.py` ties the actions to the planner.
+- **Replay, not a port of the planners.** `PlannerController` is several hundred lines of search over a time-expanded network and takes two minutes in Python; the page would wait or need a worker and a port that is hard to verify. Replaying its actions through the verified engine shows the same run and the same score, and `check_plan.py` ties the actions to the planner. The estimate's planner is small, but it is replayed the same way, so that both plans are checked by the same means (`check_estimate.py`).
+- **Words computed, not typed.** The guide (`js/guide-content.js`) and the Story tab (`js/story.js`) build every figure in their text from the scenario, the rules and the simulated runs; `tests/guide.mjs` and `tests/story.mjs` hold them against facts worked out independently from the scenario file, the challenge's own penalty code (`tests/fixtures/rules.json`, written by the exporter) and the Python traces.
 - **Fixtures in the branch.** The Python traces (about 3.7 MB in `tests/fixtures/`) make the engine checks runnable without Python. The page never loads them.
 - **An orphan `gh-pages` branch.** The site has nothing in common with the Python code on `main`, and GitHub Pages serves a branch's root as it is (`.nojekyll`).
 - **No dependencies.** Vici's files are copied unchanged into `vici/`; everything else is plain ES modules. The Content Security Policy allows only this site, and no code uses `innerHTML`.
 - **The leaderboard's figure is fixed in `js/runs.js`** (−37,374, from the brief); it is not computed.
 
-## 7. Verification log (28 Oct 2026)
+## 7. Verification log
+
+28 Oct 2026, first release; 29 Oct 2026, the guide, the Story tab and the new estimate:
 
 | Check | Result |
 |---|---|
-| `tools/export_fixtures.py --check` | the three traces, the reward terms, the reference scores and the Python semantics rebuilt identically from flatland-rl 4.2.2 |
-| `tools/check_plan.py` | PlannerController's live actions identical to `data/planner_actions.json`: −1,014.0 in 597 steps (1 min 51 s) |
-| `tests/engine.mjs` | baseline 1,248 steps, estimate 1,248, optimized 597: every value identical; scores −74,022.59999999998, −36,576.6, −1,014.0; distance maps identical; 122, 91 and 137 reward terms identical; 4,000 sums, 3,000 set orders and 10 roundings identical |
+| `tools/export_fixtures.py --check` | the three traces, the reward terms, the reference scores, the rules and the Python semantics rebuilt identically from flatland-rl 4.2.2 |
+| `tools/check_estimate.py` | the estimate's planner through the challenge's runner: −32,488.8 in 1,043 steps, every train where its booking says after every step, all 19 at their planned step, actions identical to `data/estimate_actions.json` |
+| `tools/check_plan.py` | PlannerController's live actions identical to `data/planner_actions.json`: −1,014.0 in 597 steps |
+| `tests/engine.mjs` | baseline 1,248 steps, estimate 1,043, optimized 597: every value identical; scores −74,022.59999999998, −32,488.800000000007, −1,014; distance maps identical; 122, 78 and 137 reward terms identical; 4,000 sums, 3,000 set orders and 10 roundings identical |
 | `tests/engine-negctl.mjs` | 14 planted errors, all caught; the unchanged engine passes |
-| `tests/data.mjs` | the site's map is the challenge's byte for byte; plan, scores and traces recorded on it |
-| Browser suites | smoke, layout (8 viewports × 4 states), hexagon (both themes), tokens (both themes), page icon, Vici's files: all pass |
+| `tests/data.mjs` | the site's map is the challenge's byte for byte; both plans, the scores and the traces recorded on it |
+| `tests/story.mjs`, `tests/guide.mjs` | every figure and moment of the Story tab and the guide agrees with the Python traces, the scenario and the rules |
+| Browser suites | smoke (main flows, guide, story), layout (9 viewports × 5 states and the guide's 7 chapters), hexagon (both themes, the guide included), tokens (both themes), page icon, Vici's files: all pass |

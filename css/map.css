@@ -14,9 +14,9 @@
    measured by js/ui/map.js), so nothing floats over the network. */
 .map-svg {
   position: absolute;
-  top: 76px; left: 12px;
+  top: 94px; left: 12px;
   width: calc(100% - 24px);
-  height: calc(100% - 76px - var(--legend-h, 44px) - 24px);
+  height: calc(100% - 94px - var(--legend-h, 44px) - 24px);
   overflow: hidden;
 }
 /* Numbers only where the markers are large enough to read them. */
@@ -94,6 +94,16 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .map-caption .cap-sub { color: var(--vc-text-muted); font-size: var(--fs-xs); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* What is going on, in one line: a gridlock, trains held back, trains waiting, all arrived. */
+.map-caption .cap-situation { display: flex; align-items: center; gap: 7px; margin-top: 3px; min-width: 0; font-size: var(--fs-xs); font-weight: var(--vc-weight-semibold); line-height: 1.3; color: var(--vc-text-muted); }
+.map-caption .cap-situation[hidden] { display: none; }
+.map-caption .sit-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.map-caption .sit-short { display: none; }
+.cap-dot { flex: none; width: calc(10px * 1.1547); height: 10px; clip-path: var(--vc-hex); background: var(--vc-text-muted); }
+.cap-situation[data-tone="danger"] { color: var(--vc-danger-text); }
+.cap-situation[data-tone="danger"] .cap-dot { background: var(--vc-danger-solid); }
+.cap-situation[data-tone="success"] { color: var(--vc-success-text); }
+.cap-situation[data-tone="success"] .cap-dot { background: var(--vc-success-solid); }
 
 /* ---- the views (floating, as Rebate Hunter's board views) ------------------------------------------ */
 #map { --tools-w: 316px; }
@@ -142,14 +152,27 @@
    legend strip wraps to more rows (the drawing area shrinks with it). */
 @container mappanel (max-width: 720px) {
   #map { --tools-w: 0px; }
-  .map-views { top: 72px; }
-  .map-svg { top: 128px; height: calc(100% - 128px - var(--legend-h, 44px) - 24px); left: 6px; width: calc(100% - 12px); }
+  .map-views { top: 92px; }
+  .map-svg { top: 148px; height: calc(100% - 148px - var(--legend-h, 44px) - 24px); left: 6px; width: calc(100% - 12px); }
   .map-legend { padding: 7px 12px; }
   .legend-items { gap: 4px 12px; }
+  /* The run's title may take two lines here. */
+  .map-caption strong { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+}
+/* A phone: the caption keeps the run's title (on two lines) and the situation; the step and the
+   score are in the control bar and the tiles right above. */
+@container mappanel (max-width: 560px) {
+  .map-caption .cap-sub { display: none; }
+}
+/* A small phone: the situation in its short words. */
+@container mappanel (max-width: 379px) {
+  .map-caption .sit-long { display: none; }
+  .map-caption .sit-short { display: block; }
 }
 
 /* Forced colours (Windows contrast themes): tracks and trains keep visible lines. */
 @media (forced-colors: active) {
+  .cap-dot { forced-color-adjust: none; background: CanvasText; }
   .track, .buffer, .platform, .level-free { forced-color-adjust: none; stroke: CanvasText; }
   .train-hex { forced-color-adjust: none; stroke: CanvasText; }
   .train-num, .station-label { forced-color-adjust: none; fill: CanvasText; stroke: Canvas; }

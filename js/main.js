@@ -7,7 +7,6 @@ import { icon } from "./icons.js";
 import { count, score } from "./format.js";
 import { loadScenario } from "./engine/env.js";
 import { OrderedController } from "./controllers/ordered.js";
-import { EstimateController } from "./controllers/estimate.js";
 import { ReplayController } from "./controllers/replay.js";
 import { simulate } from "./sim.js";
 import { describe } from "./network.js";
@@ -16,7 +15,8 @@ import { createKpis } from "./ui/kpis.js";
 import { createControls, SPEEDS } from "./ui/controls.js";
 import { createMap } from "./ui/map.js";
 import { createPanel } from "./ui/panel.js";
-import { introSeen, openIntro } from "./ui/intro.js";
+import { guideSeen, openGuide } from "./ui/guide.js";
+import { runFacts, situation } from "./story.js";
 
 const bootStatus = $("#boot-status");
 const bootSteps = $("#boot-steps");
@@ -34,8 +34,9 @@ async function fetchJson(path) {
 
 async function start() {
   say("Loading the scenario…");
-  const [mapData, plan, reference] = await Promise.all([
+  const [mapData, estimatePlan, plan, reference] = await Promise.all([
     fetchJson("data/neufrankfurt_19agents.json"),
+    fetchJson("data/estimate_actions.json"),
     fetchJson("data/planner_actions.json"),
     fetchJson("data/reference.json")
   ]);
@@ -47,8 +48,8 @@ async function start() {
   const verified = new Map();
   const controllers = {
     baseline: () => new OrderedController(),
-    estimate: () => new EstimateController(),
-    optimized: () => new ReplayController(plan)
+    estimate: () => new ReplayController(estimatePlan, "estimate"),
+    optimized: () => new ReplayController(plan, "optimized")
   };
   for (const r of RUNS) {
     say(`Simulating the ${r.label.toLowerCase()} run…`);
@@ -92,12 +93,16 @@ function build(ctx) {
     ...ctx,
     initialRun: state.run,
     onRun: (id) => setRun(id),
-    onSelect: (i) => select(i),
+    onSelect: (i, opts) => select(i, opts),
     onSeek: (t) => { pause(); seek(t); },
     onTab: () => {}
   });
 
-  $("#btn-about").addEventListener("click", () => openIntro(runs, { onPlay: () => { setRun("optimized"); seek(0); play(); } }));
+  // The guide; a run's Watch button plays that run from its start, with its story beside it.
+  const watch = (id) => { setRun(id); panel.show("story"); seek(0); play(); };
+  const guide = () => openGuide({ scenario, network, runs }, { onWatch: watch });
+  $("#btn-about").addEventListener("click", guide);
+  const facts = new Map([...runs].map(([id, r]) => [id, runFacts(r, scenario)]));
 
   const run = () => runs.get(state.run);
   let lastUi = -1;
@@ -113,6 +118,7 @@ function build(ctx) {
     let onMap = 0;
     for (let i = 0; i < r.frames.n; i += 1) if (r.frames.pos[t * r.frames.n + i] >= 0) onMap += 1;
     map.setCaption(`Step ${count(t)} of ${count(r.steps)} · ${onMap} on the map · score ${score(r.frames.total[t])}`);
+    map.setSituation(situation(r, scenario, facts.get(state.run), t));
     const now = performance.now();
     if (force || !state.playing || now - lastPanel > 180) {
       lastPanel = now;
@@ -141,11 +147,13 @@ function build(ctx) {
     remember();
   }
 
-  function select(i) {
+  // A train picked on the map, in the trains table or in the events opens its timetable (the Trains
+  // tab); one picked by a story moment is only ringed on the map, so the story stays in view.
+  function select(i, { keepTab = false } = {}) {
     state.selected = i;
     map.select(i);
     panel.set({ selected: i });
-    if (i !== null && panel.active() !== "trains") panel.show("trains");
+    if (i !== null && !keepTab && panel.active() !== "trains") panel.show("trains");
   }
 
   // ---- playback ------------------------------------------------------------------------------------
@@ -203,10 +211,10 @@ function build(ctx) {
   boot.dataset.state = "done";
   document.documentElement.dataset.boot = "ready";
   setTimeout(() => boot.remove(), 400);
-  if (!introSeen()) openIntro(runs, { onPlay: () => { setRun("optimized"); seek(0); play(); } });
+  if (!guideSeen()) guide();
 
   // For tests and the curious: the runs as computed in this browser.
-  window.dispatchLab = { runs, state, scenario, seek, setRun, play, pause, select };
+  window.dispatchLab = { runs, state, scenario, seek, setRun, play, pause, select, guide, facts };
 }
 
 function showBanner(tone, title, text) {
