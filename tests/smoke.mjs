@@ -41,7 +41,8 @@ import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, wanted, NETWORK_NOISE
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readJson, traceFacts } from "./lib/trace-facts.mjs";
-import { fixturePath, referencePath } from "./lib/maps.mjs";
+import { fixturePath, mapPath, referencePath } from "./lib/maps.mjs";
+import { scoresParity } from "./engine.mjs";
 
 const refs = Object.fromEntries(["frankfurt", "koeln"].map((id) => [id, JSON.parse(readFileSync(path.join(APP_ROOT, referencePath(id)), "utf8"))]));
 const reference = refs.frankfurt;
@@ -305,6 +306,9 @@ try {
     await page.click("#tab-method");
     check((await text(page, "#panel-method")).includes("The scores match to the last digit"), "panel: the method explains the check");
     check(!(await text(page, "#panel-method")).includes("hash order") && !refs.frankfurt.runs.optimized.bookings.length, "panel: on Neu-Frankfurt no stop is booked in hash order, and the method says nothing of it");
+    await page.click("#tab-score");
+    check(!(await page.$$(".kinds .kind-note")).length, "panel: nor does the Score tab");
+    await page.click("#tab-method");
     check((await page.$$(".method-symbols > li")).length === 10, "panel: the method explains the map's ten symbols, its grid cells among them");
     await page.click("#tab-score");
     check((await page.$$(".kinds tbody tr")).length === 8, "panel: the breakdown lists eight penalty kinds");
@@ -679,22 +683,64 @@ try {
     check(method.includes("data/maps/kk_36agents.json"), "maps: the method names Köln's file");
     check(method.includes("The leaderboard's −37,374 is a figure from the project brief, not simulated here: the page shows it on both maps as the target to beat."), "maps: the method says where the current best comes from");
     // The stops of Köln's optimized run booked in Python's hash order (data/koeln/reference.json): the
-    // method says how many, the scores other hash seeds can give (from what each recorded booking
-    // would add) and the seed the page shows.
+    // method says how many; the scores the run can have, exactly the engine's when every group of
+    // stops one interpreter books alike is booked at one of its platforms (tests/engine.mjs,
+    // scoresParity), and no other; how far apart they are; the seed the page shows; and the early
+    // departures that booking counts (from the Python trace's terms).
     const hashed = kRef.runs.optimized.bookings;
-    const bookedValue = (b) => b.options.find((o) => o.platform.join() === b.booked.join()).value;
-    const bound = (pick) => kRef.runs.optimized.reward + hashed.reduce((s, b) => s - bookedValue(b) + pick(...b.options.map((o) => o.value)), 0);
+    const kMap = JSON.parse(readFileSync(path.join(APP_ROOT, mapPath("koeln")), "utf8"));
+    const kTerms = readJson(fixturePath("koeln", "trace_optimized.json")).terms;
+    const kRules = readJson(fixturePath("koeln", "rules.json"));
+    const isHashed = (agent, stop) => hashed.some((b) => b.agent === agent && b.stop === stop);
+    const possible = scoresParity("optimized", { map: "koeln" });
+    const hashPara = await text(page, "#panel-method .method-hash");
+    const stated = [...new Set((hashPara.match(/−\d{1,3}(?:,\d{3})*(?:\.\d+)?/g) || []).map((x) => -Number(x.slice(1).replace(/,/g, ""))))].sort((x, y) => x - y);
+    const spread = possible.ok ? possible.scores[possible.scores.length - 1] - possible.scores[0] : NaN;
+    const spreadText = { 0.25: "a quarter of a point", 0.5: "half a point", 0.75: "three quarters of a point", 1: "one point" }[spread];
     const exact = (v) => `${v < 0 ? "−" : ""}${new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(Math.abs(v))}`;
-    const hashText = `${["No", "One", "Two", "Three", "Four", "Five", "Six"][hashed.length]} stops of the optimized run are booked in Python's hash order`;
-    const rangeText = `whatever the seed, the optimized run scores between ${exact(bound(Math.min))} and ${exact(bound(Math.max))}`;
-    check(hashed.length > 0 && method.includes(hashText) && method.includes(rangeText) && method.includes(`PYTHONHASHSEED=${kRef.hash_seed} (${exact(kRef.runs.optimized.reward)})`),
-      `maps: the method says that ${hashed.length} stops of Köln's optimized run are booked in hash order, the range "${rangeText}" and the seed it shows, ${kRef.hash_seed}`);
-    // A train with such a stop: its timetable marks the stop.
+    check(hashed.length > 0 && hashPara.startsWith(`${["No", "One", "Two", "Three", "Four", "Five", "Six"][hashed.length]} stops of the optimized run are booked in Python's hash order`),
+      `maps: the method says that ${hashed.length} stops of Köln's optimized run are booked in hash order`);
+    check(possible.ok && stated.join(" ") === possible.scores.join(" "),
+      `maps: the scores the method says the optimized run can have are exactly the engine's, each group of stops booked alike (${stated.join(", ")}; engine ${possible.ok ? possible.scores.join(", ") : possible.message})`);
+    check(!!spreadText && hashPara.includes(`So the hash seed moves the score by ${spreadText}.`), `maps: the method says the hash seed moves the score by ${spreadText || spread}`);
+    check(hashPara.includes(`PYTHONHASHSEED=${kRef.hash_seed} (${exact(kRef.runs.optimized.reward)})`) && !hashPara.includes("whatever the seed"), `maps: the method shows the run as scored under PYTHONHASHSEED=${kRef.hash_seed}, and gives no loose range`);
+    // the early departures booked at hashed stops: the trains, the call, the points
+    const earlyTerms = kTerms.filter((x) => x[2] === "stop_early" && x[3] !== 0 && isHashed(x[1], x[4]));
+    const nameOf = (i) => kMap.schedules[i].name.replace(/_/g, " ");
+    const callOf = (i, k) => { const st = kMap.schedules[i].stops; return st.slice(0, k + 1).filter((x) => x.stationId === st[k].stationId).length; };
+    const ORD = ["", "first", "second", "third"];
+    const earlyNames = earlyTerms.map((x) => nameOf(x[1]));
+    const earlyText = `Booked there, ${earlyNames.length > 1 ? `${earlyNames.slice(0, -1).join(", ")} and ${earlyNames[earlyNames.length - 1]}` : earlyNames[0]} count as having left their ${ORD[callOf(earlyTerms[0][1], earlyTerms[0][4])]} calls early, ${exact(-earlyTerms.reduce((t, x) => t + x[3], 0))} points between them: the times counted are those of the halt for the first call, although they stopped for the ${ORD[callOf(earlyTerms[0][1], earlyTerms[0][4])]} calls on platforms of their own and did not leave them early.`;
+    check(earlyTerms.length === 2 && hashPara.includes(earlyText), `maps: the method says which early departures that booking counts and that the trains did not leave early ("${earlyText}")`);
+    // The Score tab and the Story tab: the penalty kinds with terms of such stops carry a note.
+    const noteKinds = [...new Set(kTerms.filter((x) => (x[3] !== 0 || x[2] === "stop_missed" || x[2] === "stop_passed") && x[4] !== null && isHashed(x[1], x[4])).map((x) => x[2]))];
+    const labelOf = { stop_early: "Early departures", stop_late: "Late at stops", target_late: "Late at the destination" };
+    // the note: both early departures are second calls booked at the first call's platform
+    const hashNoteText = `Both: ${ORD[callOf(earlyTerms[0][1], earlyTerms[0][4])]} calls booked at the first call's platform (Python's hash order, see Method).`;
+    await page.click("#tab-score");
+    const kindNotes = await page.$$eval(".kinds tbody tr", (rows) => rows.filter((r) => r.querySelector(".kind-note")).map((r) => [r.querySelector(".kind-label").textContent, r.querySelector(".kind-note").textContent]));
+    check(JSON.stringify(kindNotes.map((x) => x[0])) === JSON.stringify(noteKinds.map((k) => labelOf[k] || k)) && kindNotes.every((x) => x[1] === hashNoteText),
+      `maps: in the Score tab, the penalty kinds with terms of stops booked in hash order carry a note (${kindNotes.map((x) => `${x[0]}: ${x[1]}`).join(" | ")})`);
+    await page.click("#tab-story");
+    const storyNotes = await page.$$eval(".story-why-note", (l) => l.map((x) => x.textContent));
+    check(storyNotes.length === noteKinds.length && storyNotes.every((x) => x === hashNoteText), `maps: the Story tab's penalties carry the same note (${storyNotes.join(" | ")})`);
+    // A train with such a stop: its timetable marks the stop, and says what it counts.
     await page.click("#tab-trains");
     await page.click(`tr[data-train="${hashed[0].agent}"] .train-pick`);
     const notes = await page.$$eval(".timetable tbody tr", (rows) => rows.map((r, k) => (r.querySelector(".stop-note") ? k : null)).filter((k) => k !== null));
     check(JSON.stringify(notes) === JSON.stringify(hashed.filter((b) => b.agent === hashed[0].agent).map((b) => b.stop)), `maps: train ${hashed[0].agent}'s timetable marks its stops booked in hash order (rows ${notes.join(", ")})`);
     await page.click(".train-close");
+    // at the end of the run, a train whose booking counts an early departure: its timetable says what
+    // is counted, and where
+    const e0 = earlyTerms[0];
+    await page.click("#btn-end");
+    await page.click(`tr[data-train="${e0[1]}"] .train-pick`);
+    const row = await page.$eval(`.timetable tbody tr:nth-child(${e0[4] + 1})`, (r) => [r.querySelector(".stop-mark")?.textContent, r.querySelector(".stop-note")?.textContent]);
+    const leftEarly = -e0[3] / kRules.balanced.intermediate_early_departure_penalty_factor;
+    check(row[0] === `Counted as left ${leftEarly} early` && row[1] === "booked at the first call's platform, with its times (Python's hash order, see Method)",
+      `maps: ${nameOf(e0[1])}'s timetable says the stop counts as left ${leftEarly} early, booked at the first call's platform (${row.join(" · ")})`);
+    await page.click(".train-close");
+    await page.click("#btn-start");
     // The guide on Köln: Köln's figures, its two runs and the current best, and Watch plays a run.
     await page.click("#btn-about");
     await page.waitForSelector(".guide-modal");

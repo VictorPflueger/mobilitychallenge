@@ -4,13 +4,14 @@
 
 import { h, clear } from "../dom.js";
 import { icon } from "../icons.js";
-import { amount, count, plural, points, score } from "../format.js";
+import { amount, count, exactScore, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
 import { moments, runFacts } from "../story.js";
 import { runById } from "../runs.js";
 import { comparison, inWords, scoreOverTime } from "./charts.js";
 import { trainSwatch, trackGlyph } from "./map.js";
-import { STATE, balancedPenalties } from "../engine/env.js";
+import { RailEnv, STATE, balancedPenalties } from "../engine/env.js";
+import { hashOrder, samePlatform } from "../hashorder.js";
 import { floorReasons } from "../floor.js";
 
 const TABS = [
@@ -25,6 +26,55 @@ export function createPanel(root, ctx) {
   const { map, runList, scenario, network, runs, verified, reference, floor } = ctx;
   // The penalties as the challenge scales them to this map's episode (1,248 or 1,710 steps).
   const P = balancedPenalties(scenario.maxSteps);
+
+  // Stops a run's Python record booked in Python's hash order (data/<map>/reference.json, as
+  // tools/export_fixtures.py records them; js/hashorder.js groups them as one interpreter books
+  // them). The Method tab explains them; the Story and Score tabs and a train's timetable point to
+  // it wherever such a stop shows in a penalty.
+  const ORDINAL = ["", "first", "second", "third", "fourth", "fifth", "sixth"];
+  const ordinal = (n) => ORDINAL[n] || `${count(n)}th`;
+  /** Which call at its station train i's stop k is: 1 for the train's first call there. */
+  const callNo = (i, k) => { const st = network.trains[i].stops; return st.slice(0, k + 1).filter((x) => x === st[k]).length; };
+  const platformKey = ([row, col, dir]) => RailEnv.wpKey(scenario.rail.index(row, col), dir);
+  const hashCache = new Map();
+  /**
+   * Run id's bookings in hash order, and for each booked stop ("train:stop") the train's other stop
+   * booked at the same platform, the call it stood there for (null if none).
+   */
+  function hashOf(id) {
+    if (!hashCache.has(id)) {
+      const run = runs.get(id);
+      const list = reference.runs[id]?.bookings || [];
+      const sharedWith = new Map();
+      for (const b of list) {
+        const key = run.bookedAt.get(`${b.agent}:${b.stop}`);
+        let other = null;
+        for (let k = 1; k < scenario.agents[b.agent].waypoints.length - 1 && other === null; k += 1) {
+          if (k !== b.stop && run.bookedAt.get(`${b.agent}:${k}`) === key) other = k;
+        }
+        sharedWith.set(`${b.agent}:${b.stop}`, other);
+      }
+      hashCache.set(id, { list, sharedWith, has: (i, k) => sharedWith.has(`${i}:${k}`) });
+    }
+    return hashCache.get(id);
+  }
+  /** For a penalty kind of run id: a note when some of its terms are stops booked in hash order, else null. */
+  function hashNote(id, kind) {
+    const f = hashOf(id);
+    if (!f.list.length) return null;
+    const counted = runs.get(id).ledger.filter((e) => e.kind === kind && (e.value !== 0 || kind === "stop_missed" || kind === "stop_passed"));
+    const mine = counted.filter((e) => e.stop !== null && f.has(e.agent, e.stop));
+    if (!mine.length) return null;
+    const n = mine.length;
+    // the same call of each train, booked at the platform of the same earlier call
+    const calls = new Set(mine.map((e) => callNo(e.agent, e.stop)));
+    const others = new Set(mine.map((e) => { const o = f.sharedWith.get(`${e.agent}:${e.stop}`); return o !== null && o < e.stop ? callNo(e.agent, o) : null; }));
+    const what = calls.size === 1 && others.size === 1 && !others.has(null)
+      ? `${n === 1 ? `a ${ordinal([...calls][0])} call` : `${ordinal([...calls][0])} calls`} booked at the ${ordinal([...others][0])} call's platform (Python's hash order, see Method).`
+      : `${n === 1 ? "a stop" : "stops"} booked in Python's hash order, see Method.`;
+    if (n === counted.length && n === 1) return `${what[0].toUpperCase()}${what.slice(1)}`;
+    return `${n < counted.length ? `${count(n)} of them` : n === 2 ? "Both" : `All ${count(n)}`}: ${what}`;
+  }
   const tabs = new Map();
   const panels = new Map();
   const list = h("div", { class: "vc-tabs__list panel-tabs", role: "tablist", "aria-label": "Run details" });
@@ -99,7 +149,7 @@ export function createPanel(root, ctx) {
       storyFor = id;
       storyHolder.dataset.run = id;
       const fin = breakdown(run, run.steps);
-      const lost = KINDS.map((k) => ({ ...k, ...fin[k.id] })).filter((k) => k.value < 0).sort((a, b) => a.value - b.value);
+      const lost = KINDS.map((k) => ({ ...k, ...fin[k.id], note: hashNote(id, k.id) })).filter((k) => k.value < 0).sort((a, b) => a.value - b.value);
       const total = Math.abs(run.score) || 1;
       momentButtons = list.map((m) => h("button", {
         type: "button", class: "moment", dataset: { kind: m.kind },
@@ -127,7 +177,8 @@ export function createPanel(root, ctx) {
           lost.length
             ? h("ul", { class: "story-why" }, lost.slice(0, 4).map((k) => h("li", { dataset: { tone: k.tone } },
               h("span", { class: "story-why-share" }, `${Math.round((Math.abs(k.value) / total) * 100)} %`),
-              h("span", {}, h("strong", {}, `${k.label}: ${score(k.value)}`), h("span", {}, `${count(k.count)} × · ${k.hint(P)}`)))))
+              h("span", {}, h("strong", {}, `${k.label}: ${score(k.value)}`), h("span", {}, `${count(k.count)} × · ${k.hint(P)}`),
+                k.note ? h("span", { class: "story-why-note" }, k.note) : ""))))
             : h("p", {}, "No penalty at all.")),
         h("button", {
           type: "button", class: "vc-button vc-button--secondary story-next",
@@ -165,8 +216,10 @@ export function createPanel(root, ctx) {
       bar.style.setProperty("--w", `${((Math.abs(b.value) / max) * 100).toFixed(2)}%`);
       const finBar = h("span", { class: "kind-bar-final" });
       finBar.style.setProperty("--w", `${((Math.abs(f.value) / max) * 100).toFixed(2)}%`);
+      const note = hashNote(state.run, k.id);
       return h("tr", { dataset: { tone: k.tone, zero: String(f.value === 0 && f.count === 0) } },
-        h("th", { scope: "row" }, h("span", { class: "kind-mark", "aria-hidden": "true" }, icon(k.tone === "danger" ? "error" : "warning", 15)), h("span", { class: "kind-label" }, k.label), h("span", { class: "kind-hint" }, k.hint(P))),
+        h("th", { scope: "row" }, h("span", { class: "kind-mark", "aria-hidden": "true" }, icon(k.tone === "danger" ? "error" : "warning", 15)), h("span", { class: "kind-label" }, k.label), h("span", { class: "kind-hint" }, k.hint(P)),
+          note ? h("span", { class: "kind-note" }, note) : ""),
         h("td", { class: "kind-track" }, finBar, bar),
         h("td", { class: "num" }, b.count ? `${count(b.count)}×` : "—"),
         h("td", { class: "num strong" }, b.value ? score(b.value) : "0.0"),
@@ -235,8 +288,9 @@ export function createPanel(root, ctx) {
     const tt = run.timetable[i];
     const st = trainStatus(run, scenario, i, t);
     const shown = (v) => (v !== null && v <= t ? count(v) : "—");
-    // the train's stops this run booked in Python's hash order (the Method tab says how)
-    const inHashOrder = new Set((reference.runs[state.run]?.bookings || []).filter((b) => b.agent === i).map((b) => b.stop));
+    // the train's stops this run booked in Python's hash order (the Method tab says how): their times
+    // are those of the platform the stop is booked at, so the mark says what is counted
+    const hash = hashOf(state.run);
     const rows = a.waypoints.map((_, k) => {
       const first = k === 0;
       const lastStop = k === a.waypoints.length - 1;
@@ -262,7 +316,9 @@ export function createPanel(root, ctx) {
         if (stopped) {
           const lateBy = tt.arrived[k] - a.wpLa[k];
           const earlyBy = left ? a.wpEd[k] - tt.departed[k] : 0;
-          mark = lateBy > 0 ? `Stopped, ${lateBy} late` : earlyBy > 0 ? `Left ${earlyBy} early` : "Stopped on time";
+          mark = hash.has(i, k)
+            ? (lateBy > 0 ? `Counted ${lateBy} late` : earlyBy > 0 ? `Counted as left ${earlyBy} early` : "Counted on time")
+            : (lateBy > 0 ? `Stopped, ${lateBy} late` : earlyBy > 0 ? `Left ${earlyBy} early` : "Stopped on time");
           tone = lateBy > 0 || earlyBy > 0 ? "late" : "ok";
         } else if (left) { mark = "Passed through"; tone = "lost"; }
         else if (reached) { mark = "At the platform"; }
@@ -275,8 +331,14 @@ export function createPanel(root, ctx) {
         h("td", { class: "num" }, lastStop ? "" : count(a.wpEd[k])),
         h("td", { class: "num" }, lastStop ? "" : leave),
         h("td", {}, mark ? h("span", { class: "stop-mark", dataset: { tone } }, mark) : "",
-          inHashOrder.has(k) ? h("span", { class: "stop-note" }, "booked in Python's hash order, see Method") : ""));
+          hash.has(i, k) ? h("span", { class: "stop-note" }, stopNote(i, k)) : ""));
     });
+    function stopNote(i, k) {
+      const other = hash.sharedWith.get(`${i}:${k}`);
+      return other === null
+        ? "booked in Python's hash order, see Method"
+        : `booked at the ${ordinal(callNo(i, other))} call's platform, with its times (Python's hash order, see Method)`;
+    }
     const close = h("button", { class: "vc-icon-button train-close", type: "button", "aria-label": "Close the timetable" }, icon("close", 18));
     close.addEventListener("click", () => ctx.onSelect(null));
     detailHolder.appendChild(h("section", { class: "vc-card train-detail", "aria-label": `Timetable of train ${i}` },
@@ -397,35 +459,92 @@ export function createPanel(root, ctx) {
         h("p", { class: "muted" }, `The map is the challenge's data/maps/${map.file}, unchanged. Station names come from its line names; stations no line names stay numbered.`)));
 
     // A run's stops the reward function booked in Python's hash order (data/<map>/reference.json, as
-    // tools/export_fixtures.py records them): which, and the scores the run gets under other hash
-    // seeds, from what booking each stop at each platform the train stood on adds to the score.
+    // tools/export_fixtures.py records them): which, how one interpreter books them and so the scores
+    // the run can have (js/hashorder.js), the one the page shows, and the penalties that booking
+    // counts which the trains' own halts would not.
     function hashOrderSentence(r) {
-      const list = reference.runs[r.id]?.bookings || [];
+      const f = hashOf(r.id);
+      const list = f.list;
       if (!list.length) return null;
       const run = runs.get(r.id);
-      const ORDINAL = ["", "first", "second", "third", "fourth", "fifth"];
-      const groups = new Map();
+      const label = r.label.toLowerCase();
+      const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0]);
+      // which calls: "the second calls of RB nord1, RB nord2 and RB nord3 at Stop 2"
+      const named = new Map();
       for (const b of list) {
         const tr = network.trains[b.agent];
-        const station = tr.stops[b.stop];
-        const call = tr.stops.slice(0, b.stop + 1).filter((s) => s === station).length;
-        const where = `${ORDINAL[call] || `call ${call}`}|${network.stationName(station)}`;
-        if (!groups.has(where)) groups.set(where, []);
-        groups.get(where).push(tr.name);
+        const where = `${ordinal(callNo(b.agent, b.stop))}|${network.stationName(tr.stops[b.stop])}`;
+        if (!named.has(where)) named.set(where, []);
+        named.get(where).push(tr.name);
       }
-      const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0]);
-      const which = and([...groups].map(([where, names]) => {
+      const which = and([...named].map(([where, names]) => {
         const [call, station] = where.split("|");
         return `the ${call} ${names.length > 1 ? "calls" : "call"} of ${and(names)} at ${station}`;
       }));
-      const value = (b, pick) => pick(...b.options.map((o) => o.value));
-      const booked = (b) => b.options.find((o) => o.platform.join() === b.booked.join()).value;
-      const low = run.score + list.reduce((s, b) => s - booked(b) + value(b, Math.min), 0);
-      const high = run.score + list.reduce((s, b) => s - booked(b) + value(b, Math.max), 0);
-      const exact = (v) => `${v < 0 ? "−" : ""}${amount(v)}`;
+      const n = list.length;
+      const nWords = inWords(n).toLowerCase();
+      const groups = hashOrder.groups(list, scenario);
+      const possible = hashOrder.scores(run.score, groups);
       const most = Math.max(...list.map((b) => b.options.length));
-      const label = r.label.toLowerCase();
-      return `${inWords(list.length)} stops of the ${label} run are booked in Python's hash order: ${which}. Each of these trains stood on ${most > 2 ? "two or more" : "two"} of the platforms the timetable lists for the stop, and the challenge's reward function books it at whichever comes first in a Python set, an order that changes with the interpreter's hash seed. So the score depends on the hash seed: whatever the seed, the ${label} run scores between ${exact(low)} and ${exact(high)}. The page shows it as scored under PYTHONHASHSEED=${reference.hash_seed} (${exact(run.score)}), booking each of these stops where that run did.`;
+      // One group of two platforms: one each train stood on for an earlier call there (the same call
+      // for all), the other listed for no other call of the train (the call's own).
+      const g = groups.length === 1 && groups[0].platforms.length === 2 ? groups[0] : null;
+      let pair = null;
+      if (g) {
+        const listedElsewhere = (b, p) => scenario.agents[b.agent].waypoints.some((wps, k) => k !== b.stop && k > 0
+          && wps.some((w) => w.cell === scenario.rail.index(p[0], p[1]) && w.dir === p[2]));
+        // the earlier call of the train booked at platform p, which it stood on for that call
+        const sharedCall = (b, p) => {
+          for (let k = 1; k < b.stop; k += 1) if (run.bookedAt.get(`${b.agent}:${k}`) === platformKey(p)) return callNo(b.agent, k);
+          return null;
+        };
+        for (const [shared, own] of [[g.platforms[0], g.platforms[1]], [g.platforms[1], g.platforms[0]]]) {
+          const calls = g.members.map((b) => sharedCall(b, shared));
+          if (calls.every((c) => c !== null && c === calls[0]) && g.members.every((b) => !listedElsewhere(b, own))) {
+            pair = { shared, own, sharedCall: ordinal(calls[0]), call: ordinal(callNo(g.members[0].agent, g.members[0].stop)) };
+          }
+        }
+        if (pair && !g.members.every((b) => callNo(b.agent, b.stop) === callNo(g.members[0].agent, g.members[0].stop))) pair = null;
+      }
+      const scoreAt = (p) => run.score + g.choices.find((c) => samePlatform(c.platform, p)).change;
+      const out = [`${inWords(n)} stops of the ${label} run are booked in Python's hash order: ${which}.`];
+      out.push(pair
+        ? `Each of these trains stood on two of the platforms the timetable lists for the stop: one it also lists for the ${pair.sharedCall} call, where the train stood for that call, and one of the ${pair.call} call's own. The challenge's reward function books the stop at whichever comes first in a Python set, an order that changes with the interpreter's hash seed.`
+        : `Each of these trains stood on ${most > 2 ? "two or more" : "two"} of the platforms the timetable lists for the stop, and the challenge's reward function books the stop at whichever comes first in a Python set, an order that changes with the interpreter's hash seed.`);
+      if (groups.every((x) => x.consistent)) {
+        const alike = groups.length === 1
+          ? `The ${nWords} calls list the same platforms in the same order and their trains stood on the same ${inWords(groups[0].platforms.length).toLowerCase()}, so one interpreter books all ${nWords} at the same platform`
+          : `They fall into ${inWords(groups.length).toLowerCase()} groups of calls that list the same platforms in the same order and whose trains stood on the same ones, and one interpreter books all the stops of a group at the same platform`;
+        const scores = pair
+          ? `the run scores ${exactScore(scoreAt(pair.shared))} when it books them at the platform shared with the ${pair.sharedCall} call, and ${exactScore(scoreAt(pair.own))} when at the ${pair.call} call's own`
+          : possible.length === 2 ? `the run scores ${exactScore(possible[0])} or ${exactScore(possible[1])}` : `the run can score ${and(possible.map(exactScore))}`;
+        out.push(`${alike}: ${scores}. ${possible.length > 1 ? `So the hash seed moves the score by ${pointsInWords(possible[possible.length - 1] - possible[0])}.` : "So the hash seed does not change the score."}`);
+      } else {
+        out.push("So the score depends on the hash seed.");
+      }
+      const at = pair && samePlatform(g.booked, pair.shared) ? `, at the platform shared with the ${pair.sharedCall} call` : pair && samePlatform(g.booked, pair.own) ? `, at the ${pair.call} call's own platform` : "";
+      out.push(`The page shows the run as scored under PYTHONHASHSEED=${reference.hash_seed} (${exactScore(run.score)}), booking each of these stops where that run did${at}.`);
+      // Booked at the platform of an earlier call, a stop counts that call's halt: its early departure,
+      // although the train stopped for the call on a platform of the call's own and did not leave early.
+      if (pair && samePlatform(g.booked, pair.shared)) {
+        const earlyOf = (b) => run.ledger.filter((e) => e.agent === b.agent && e.stop === b.stop && e.kind === "stop_early").reduce((t, e) => t + e.value, 0);
+        const early = g.members.filter((b) => earlyOf(b) < 0);
+        if (early.length) {
+          const names = early.map((b) => network.trains[b.agent].name);
+          const total = -early.reduce((t, b) => t + earlyOf(b), 0);
+          const own = early.every((b) => run.events.some((e) => e.train === b.agent && e.kind === "stop" && e.stop === b.stop)
+            && run.events.filter((e) => e.train === b.agent && e.kind === "leave" && e.stop === b.stop).every((e) => e.early === 0));
+          const they = early.length === 1 ? "it" : "they";
+          out.push(`Booked there, ${and(names)} count as having left ${early.length === 1 ? "its" : "their"} ${pair.call} ${early.length === 1 ? "call" : "calls"} early, ${amount(total)} points${early.length > 1 ? " between them" : ""}: the times counted are those of the halt for the ${pair.sharedCall} call${own ? `, although ${they} stopped for the ${pair.call} ${early.length === 1 ? "call" : "calls"} on ${early.length === 1 ? "a platform" : "platforms"} of ${early.length === 1 ? "its" : "their"} own and did not leave ${early.length === 1 ? "it" : "them"} early` : ""}.`);
+        }
+      }
+      return out.join(" ");
+    }
+
+    /** A difference of points in words: a quarter of a point, half a point, 2.5 points. */
+    function pointsInWords(d) {
+      const WORDS = { 0.25: "a quarter of a point", 0.5: "half a point", 0.75: "three quarters of a point", 1: "one point" };
+      return WORDS[d] || `${amount(d)} points`;
     }
 
     // Why zero is out of reach on this map (js/floor.js).

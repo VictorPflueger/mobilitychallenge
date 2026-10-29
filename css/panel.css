@@ -60,6 +60,8 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
 .kinds tr[data-tone="danger"] .kind-mark { color: var(--vc-danger-solid); }
 .kinds tr[data-tone="warning"] .kind-mark { color: var(--vc-warning-text); }
 .kinds .kind-hint { display: block; color: var(--vc-text-subtle); font-size: var(--fs-xs); font-weight: var(--vc-weight-regular); max-width: 34ch; }
+/* Terms of stops booked in Python's hash order (the Method tab explains them); kept on phones. */
+.kinds .kind-note { display: block; color: var(--vc-text-muted); font-size: var(--fs-xs); font-weight: var(--vc-weight-regular); max-width: 34ch; }
 .kinds tr[data-zero="true"] { color: var(--vc-text-subtle); }
 .kinds tr[data-zero="true"] .kind-mark { opacity: 0.45; }
 .kinds .kind-track { position: relative; width: 26%; min-width: 60px; }

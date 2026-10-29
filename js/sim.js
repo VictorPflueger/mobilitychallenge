@@ -197,6 +197,7 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
     events,
     ambiguous: env.ambiguous, // stops the engine could not book as the Python run did
     choices: env.choices, // stops it booked as recorded, among two or more platforms the train stood on
+    bookedAt: env.bookedAt, // "train:stop" → the platform's key the stop is booked at (null: never reached)
     millis: performance.now() - t0
   };
 }

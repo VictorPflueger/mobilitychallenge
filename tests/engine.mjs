@@ -16,7 +16,12 @@
 //                          (data/<map>/reference.json): each a stop the engine finds reached on two
 //                          or more listed platforms, the booked platform among them, and for every
 //                          platform the train stood on, what booking it there adds to the score in
-//                          the engine, as recorded
+//                          the engine, as recorded. Then the scores the page says the run can have
+//                          (js/hashorder.js): the stops grouped here from the map file (each call's
+//                          listed platforms, in order) and the record (the platforms the train
+//                          stood on), each group booked alike in the record, and the engine's score
+//                          for every choice of platform per group, all the group's stops booked
+//                          there; the page must state exactly these
 //   python                 sum(), set order and round() against CPython 3.13 on random inputs
 //                          (once, for both maps)
 // The runs are replayed with the bookings their Python record gives (js/engine/env.js, stopArrival);
@@ -32,6 +37,7 @@ import { PySmallIntSet, pyRound, pySum } from "../js/engine/py.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { KINDS, breakdown, simulate } from "../js/sim.js";
+import { hashOrder } from "../js/hashorder.js";
 import { MAPS, fixturePath, mapPath, parseCases, planPath, referencePath } from "./lib/maps.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -193,6 +199,46 @@ export function bookingsParity(name, options = {}) {
   return { ok: true, count: recorded.length, options: recorded.reduce((s, b) => s + b.options.length, 0) };
 }
 
+/**
+ * The scores the page says run `name` can have (js/hashorder.js), against the engine. The recorded
+ * stops booked in hash order are grouped here, independently of the page, by what one interpreter
+ * books alike: the call's listed platforms in the map file's order ("flatland line") and the
+ * platforms the train stood on (the record's options). Every group must be booked at one platform in
+ * the record, as one interpreter books it. The engine then replays the run once for every choice of
+ * platform per group, every stop of the group booked there, and the page's scores must be exactly
+ * the scores these replays give. Returns { ok, message, groups, scores }.
+ */
+export function scoresParity(name, options = {}) {
+  const map = options.map || "frankfurt";
+  const recorded = bookingsOf(name, options);
+  const data = read(mapPath(map));
+  const scenario = loadScenario(data);
+  const line = data["flatland line"];
+  const byKey = new Map();
+  for (const b of recorded) {
+    const key = JSON.stringify([line.agent_positions[b.agent][b.stop], line.agent_directions[b.agent][b.stop], b.options.map((o) => o.platform)]);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(b);
+  }
+  const groups = [...byKey.values()];
+  const split = groups.find((g) => !g.every((b) => b.booked.join() === g[0].booked.join()));
+  if (split) return { ok: false, message: `the record books the stops ${split.map((b) => `${b.agent}:${b.stop}`).join(", ")}, which one interpreter books alike, at different platforms` };
+  let choices = [[]];
+  for (const g of groups) choices = choices.flatMap((c) => g[0].options.map((o) => [...c, o.platform]));
+  const scores = [];
+  for (const choice of choices) {
+    const bookings = recorded.map((b) => ({ ...b, booked: choice[groups.findIndex((g) => g.includes(b))] }));
+    const run = simulate(scenario, makeController(name, options), { bookings });
+    if (run.ambiguous.length) return { ok: false, message: `the engine could not book ${JSON.stringify(run.ambiguous)}` };
+    if (!scores.includes(run.score)) scores.push(run.score);
+  }
+  scores.sort((x, y) => x - y);
+  const base = simulate(scenario, makeController(name, options), { bookings: recorded });
+  const page = hashOrder.scores(base.score, hashOrder.groups(recorded, scenario));
+  if (page.join(" ") !== scores.join(" ")) return { ok: false, message: `the page says the run can score ${page.join(", ")}; the engine, booking each group alike, ${scores.join(", ")}` };
+  return { ok: true, groups: groups.length, stops: recorded.length, scores };
+}
+
 export function distanceMapParity(options = {}) {
   const fixture = read(fixturePath(options.map || "frankfurt", "trace_baseline.json")).distance_map;
   const env = makeEnv(options);
@@ -263,6 +309,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           const r = bookingsParity(run, { map });
           if (r.ok) console.log(`PASS  ${map} ${run}: ${r.count ? `${r.count} stops booked in hash order as recorded; booked at any of the ${r.options} platforms their trains stood on, they add what the record says` : "no stop booked in hash order, as recorded"}`);
           else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
+          const sc = scoresParity(run, { map });
+          if (sc.ok) console.log(`PASS  ${map} ${run}: ${sc.stops ? `${sc.stops} stops in ${sc.groups} ${sc.groups === 1 ? "group" : "groups"} booked alike; the page's possible scores (${sc.scores.join(", ")}) are exactly the engine's for each choice of platform per group` : `one possible score (${sc.scores[0]}), as the page says`}`);
+          else { bad += 1; console.log(`FAIL  ${map} ${run}: ${sc.message}`); }
         }
         if (bad) failed += 1; else console.log(`BOOKINGS_PARITY_OK ${map}`);
       } else {

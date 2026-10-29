@@ -29,6 +29,15 @@ export function amount(v) {
   return UPTO2.format(Math.abs(roundTo(v, 2)));
 }
 
+const TWO = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** A score as exact as it is, to a hundredth, and at least to a tenth: −27,655.25, −27,655.0. */
+export function exactScore(v) {
+  const r = roundTo(v, 2);
+  const hundredths = Math.round(Math.abs(r) * 100) % 10 !== 0;
+  return minus((hundredths ? TWO : ONE).format(r === 0 ? 0 : r));
+}
+
 /** A signed difference: +1,234.5 or −36,648.6; ±0.0 for none. */
 export function signed(v) {
   const r = roundTo(v, 1);

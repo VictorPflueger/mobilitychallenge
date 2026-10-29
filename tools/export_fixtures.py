@@ -26,7 +26,10 @@ PYTHONHASHSEED. The exporter therefore runs only under a fixed PYTHONHASHSEED (t
 record), and writes into reference.json the seed and, for every run, each such stop: the train, the
 stop (k, as in the terms), the platform Python booked ([row, column, direction]) and what booking each
 platform the train stood on would add to the score. The page's engine books those stops where Python
-did (js/engine/env.js).
+did (js/engine/env.js). CPython builds the intersection by walking the smaller set, the listed
+platforms (asserted for every such stop), so one interpreter books alike all stops whose calls list
+the same platforms in the same order and whose trains stood on the same ones; the page works out the
+scores other seeds give from such groups (js/hashorder.js).
 
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
   PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>              write every map's fixtures
@@ -206,6 +209,12 @@ class Decomposer:
         the train stood on (in the timetable's order), what booking the stop there would add to the
         score, as the method computes it."""
         rw, TS = self.rw, self.TrainState
+        # CPython builds an intersection by walking the smaller set and adds the matches in that
+        # order. With the listed platforms the smaller set, one interpreter books alike every stop
+        # whose call lists the same platforms in the same order and whose train stood on the same
+        # ones; the page groups such stops so (js/hashorder.js), and this keeps it true.
+        assert len(set(rw.arrivals[agent.handle])) > len(set(alternatives)), \
+            (int(agent.handle), k, 'the intersection walks the arrivals, not the listed platforms')
 
         def value(wp):
             if TS.STOPPED not in rw.states[agent.handle][wp]:

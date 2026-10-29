@@ -2,13 +2,15 @@
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
 // function, the plan, the distance map or the score breakdown) and the parity check must report a
 // difference. The unchanged engine must pass first, so a failure is the check's doing, not a broken
-// harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops, which
-// start on their destination's cell and must be finished as they enter.
+// harness. Köln gets its own: its plan, its penalty scale (1,710 steps), its S-Bahn loops, which
+// start on their destination's cell and must be finished as they enter, and the stops of its
+// optimized run booked in Python's hash order, with the scores the page says that run can have.
 // Usage: node tests/engine-negctl.mjs
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { bookingsOf, distanceMapParity, parity, termsParity } from "./engine.mjs";
+import { bookingsOf, distanceMapParity, parity, scoresParity, termsParity } from "./engine.mjs";
+import { hashOrder } from "../js/hashorder.js";
 import { RailEnv } from "../js/engine/env.js";
 import { MotionCheck } from "../js/engine/motion.js";
 import { Rail } from "../js/engine/rail.js";
@@ -161,6 +163,12 @@ expectDifference("Köln: a stop booked in hash order recorded at the train's oth
 expectDifference("Köln: the stops booked in hash order without their record", () => {
   if (!kBookings.length) return { ok: true, message: "no stop booked in hash order" };
   return parity("optimized", { map: "koeln", bookings: [] });
+});
+// The scores the page says the run can have: worked out stop by stop, as if one interpreter could
+// book each of these stops on its own, they include scores no interpreter gives.
+expectDifference("Köln: the page's possible scores worked out stop by stop instead of by group", () => {
+  if (kBookings.length < 2) return { ok: true, message: "fewer than two stops booked in hash order" };
+  return patched(hashOrder, "key", (b) => `${b.agent}:${b.stop}`, () => scoresParity("optimized", { map: "koeln" }));
 });
 expectDifference("Köln: the S-Bahn loops' destination one cell off their first cell", () => parity("baseline", {
   map: "koeln",
