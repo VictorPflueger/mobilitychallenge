@@ -72,7 +72,13 @@ export const ACCELERATION = 0.3;
 export const BRAKING = -0.5;
 
 export class RailEnv {
-  constructor(scenario, { accelerationDelta = ACCELERATION, brakingDelta = BRAKING } = {}) {
+  /**
+   * bookings: the stops of the run being replayed that a train reached on two or more of the
+   * platforms listed for them, with the platform the Python run booked each at, as
+   * tools/export_fixtures.py records them in data/<map>/reference.json:
+   * [{ agent, stop, booked: [row, column, direction] }] (see stopArrival).
+   */
+  constructor(scenario, { accelerationDelta = ACCELERATION, brakingDelta = BRAKING, bookings = [] } = {}) {
     this.scenario = scenario;
     this.rail = scenario.rail;
     this.levelFree = scenario.levelFree;
@@ -81,6 +87,7 @@ export class RailEnv {
     this.accelerationDelta = accelerationDelta;
     this.brakingDelta = brakingDelta;
     this.distanceMaps = computeDistanceMaps(this.rail, scenario.agents.map((a) => a.target));
+    this.bookings = new Map(bookings.map((b) => [`${b.agent}:${b.stop}`, RailEnv.wpKey(this.rail.index(b.booked[0], b.booked[1]), b.booked[2])]));
     this.ledger = null;
   }
 
@@ -104,7 +111,12 @@ export class RailEnv {
     this.dones = this.agents.map(() => false);
     this.allDone = false;
     this.book = this.agents.map(() => ({ arrivals: new Map(), departures: new Map(), states: new Map() }));
+    // stops the engine could not book as the Python run did (stopArrival); the stops it booked at
+    // one of two or more listed platforms the train reached, as recorded; and where it booked each
+    // train's stops: "train:stop" → the platform's key, or null for a stop never reached
     this.ambiguous = [];
+    this.choices = [];
+    this.bookedAt = new Map();
     this.lastStep = null;
   }
 
@@ -340,7 +352,15 @@ export class RailEnv {
     return Math.ceil((length ?? 0) / agent.maxSpeed);
   }
 
-  /** The stop of waypoint k as served: the arrival key, or null when it was not reached. */
+  /**
+   * The platform waypoint k is booked at: the key of a listed platform the train arrived at, or null
+   * when it reached none. The reward function books list(set(listed) & set(arrivals))[0]. Where the
+   * train reached two or more listed platforms (a station called at twice, whose calls list some of
+   * the same platforms), that is the first of a Python set, an order the interpreter's hash seed
+   * sets: the engine books the platform the replayed Python run recorded (this.bookings). A stop
+   * reached on two or more platforms without such a record, a record naming a platform the train
+   * did not reach, and a record for a stop reached on one platform are reported (this.ambiguous).
+   */
   stopArrival(agent, k) {
     const book = this.book[agent.handle];
     const hits = [];
@@ -349,8 +369,15 @@ export class RailEnv {
       const key = RailEnv.wpKey(w.cell, w.dir);
       if (book.arrivals.has(key) && !hits.includes(key)) hits.push(key);
     }
-    if (hits.length > 1) this.ambiguous.push({ agent: agent.handle, stop: k });
-    return hits.length ? hits[0] : null;
+    const id = `${agent.handle}:${k}`;
+    const recorded = this.bookings.get(id);
+    let key = hits.length ? hits[0] : null;
+    if (hits.length > 1 && recorded !== undefined && hits.includes(recorded)) {
+      key = recorded;
+      this.choices.push({ agent: agent.handle, stop: k, platforms: hits, booked: key });
+    } else if (hits.length > 1 || recorded !== undefined) this.ambiguous.push({ agent: agent.handle, stop: k, platforms: hits, recorded: recorded ?? null });
+    this.bookedAt.set(id, key);
+    return key;
   }
 
   doneOrMaxStepsReward(agent) {

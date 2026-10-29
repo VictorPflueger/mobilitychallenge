@@ -3,14 +3,17 @@
  "map_sha256": "8b7a7b6e588c16369bac6d8226e7f52748f340b62ed33731b1b3250bea0d5228",
  "python": "3.13.18",
  "flatland": "4.2.2",
+ "hash_seed": "0",
  "runs": {
   "baseline": {
    "reward": -74022.59999999998,
-   "steps": 1248
+   "steps": 1248,
+   "bookings": []
   },
   "optimized": {
    "reward": -1014.0,
-   "steps": 597
+   "steps": 597,
+   "bookings": []
   }
  }
 }

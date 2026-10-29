@@ -60,9 +60,10 @@ async function start() {
   for (const r of runList) {
     say(`Simulating the ${r.label.toLowerCase()} run…`);
     await nextFrame();
-    const run = simulate(scenario, controllers[r.id]());
-    runs.set(r.id, run);
+    // The stops the Python run booked in hash order are booked where it booked them (js/engine/env.js).
     const ref = reference.runs[r.id];
+    const run = simulate(scenario, controllers[r.id](), { bookings: ref?.bookings || [] });
+    runs.set(r.id, run);
     const same = ref && ref.reward === run.score && ref.steps === run.steps && !run.ambiguous.length;
     verified.set(r.id, same);
     done(`${r.label}: ${score(run.score)} in ${count(run.steps)} steps, ${Math.max(1, Math.round(run.millis))} ms${same ? ", same as the Python runner" : ""}`);

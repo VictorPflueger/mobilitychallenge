@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { distanceMapParity, parity, termsParity } from "./engine.mjs";
+import { bookingsOf, distanceMapParity, parity, termsParity } from "./engine.mjs";
 import { RailEnv } from "../js/engine/env.js";
 import { MotionCheck } from "../js/engine/motion.js";
 import { Rail } from "../js/engine/rail.js";
@@ -147,6 +147,21 @@ expectDifference("Köln: one action of the plan changed", () => parity("optimize
 }));
 expectDifference("Köln: crash penalty 1,282 instead of 1,282.5", () => parity("baseline", { map: "koeln", mutateEnv: (env) => { env.penalty.crash = 1282; } }));
 expectDifference("Köln: a missed stop 683 instead of 684", () => parity("baseline", { map: "koeln", mutateEnv: (env) => { env.penalty.notServed = 683; } }));
+// Köln's stops booked in Python's hash order (data/koeln/reference.json): the engine books them where
+// the record says Python did. A record naming the train's other platform changes the score; without
+// the record the engine's own first choice happens to give the same score, and only its report of
+// an unbooked stop catches it.
+const kBookings = bookingsOf("optimized", { map: "koeln" });
+expectDifference("Köln: a stop booked in hash order recorded at the train's other platform", () => {
+  const b = kBookings.find((x) => x.options.some((o) => o.value !== x.options[0].value));
+  if (!b) return { ok: true, message: "no stop booked in hash order" };
+  const other = b.options.find((o) => o.platform.join() !== b.booked.join());
+  return parity("optimized", { map: "koeln", bookings: kBookings.map((x) => (x === b ? { ...x, booked: other.platform } : x)) });
+});
+expectDifference("Köln: the stops booked in hash order without their record", () => {
+  if (!kBookings.length) return { ok: true, message: "no stop booked in hash order" };
+  return parity("optimized", { map: "koeln", bookings: [] });
+});
 expectDifference("Köln: the S-Bahn loops' destination one cell off their first cell", () => parity("baseline", {
   map: "koeln",
   mutateScenario: (sc) => {

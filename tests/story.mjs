@@ -13,7 +13,7 @@ import { mapById } from "../js/maps.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson, traceFacts } from "./lib/trace-facts.mjs";
-import { MAP_IDS, mapPath, planPath } from "./lib/maps.mjs";
+import { MAP_IDS, mapPath, planPath, referencePath } from "./lib/maps.mjs";
 
 const results = [];
 const check = (ok, what) => results.push([ok, what]);
@@ -23,6 +23,8 @@ const maps = process.argv.slice(2).length ? process.argv.slice(2) : MAP_IDS;
 for (const id of maps) {
 const map = mapById(id);
 const data = readJson(mapPath(id));
+// the stops each run booked in Python's hash order, booked where it booked them (as the page does)
+const reference = readJson(referencePath(id));
 const scenario = loadScenario(data);
 const network = describe(data, map);
 const controllers = {
@@ -31,7 +33,7 @@ const controllers = {
 };
 
 for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
-  const run = simulate(scenario, controllers[r.id]());
+  const run = simulate(scenario, controllers[r.id](), { bookings: reference.runs[r.id].bookings });
   const page = runFacts(run, scenario);
   const py = traceFacts(r.id, data, id);
   const tag = `${id} ${r.id}`;

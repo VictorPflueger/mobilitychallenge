@@ -26,7 +26,7 @@ The challenge's default map, the one its runner loads: 19 trains, 59 stops, 1,24
 |---|---:|---|---:|---:|
 | Baseline | −74,022.6 | `OrderedController`, the challenge's default: every train takes the shortest branch towards its destination and never waits, neither for other trains nor at its stations | 7 / 19 | 0 / 59 |
 | Current best | −37,374 | The leaderboard's figure, from the project brief, and the target to beat; the page shows the same figure on both maps. The entry's code is not public, so it is not simulated here | — | — |
-| Optimized | −1,014.0 | `PlannerController`: plans every train through all its stops in time and space before the first step, so no two trains ever want the same cell, then improves the plan train group by train group | 19 / 19 | 59 / 59 |
+| Optimized | −1,014.0 | `PlannerController v2`: plans every train through all its stops in time and space before the first step, so no two trains ever want the same cell, then improves the plan train group by train group. On this map it gives the first version's plan, action for action | 19 / 19 | 59 / 59 |
 
 **No dispatcher can score better than −944 on this map.** The two S-Bahns of the airport loop (S FF Hbf FF 1 and 2) cannot keep their timetables even on empty track, at full speed and without halting: each reaches its stops and its destination too late to lose fewer than 472 points. `tools/score_floor.py` computes this bound on flatland's own rail (and checks the timing it assumes in every recorded run), `js/floor.js` computes it in the browser, and `tests/guide.mjs` holds the two together. The optimized run is 70 points above the bound.
 
@@ -50,32 +50,26 @@ The larger of the two maps the challenge's final ran on (T-Systems' whitepaper, 
 |---|---:|---|---:|---:|
 | Baseline | −270,672.75 | `OrderedController`, as on Neu-Frankfurt. 163 collisions; from step 228 on, 16 trains block each other and nothing moves again | 20 / 36, 6 of them as they enter | 4 / 108 |
 | Current best | −37,374 | The same figure as on Neu-Frankfurt: the leaderboard's, from the project brief, and the target to beat. Not simulated | — | — |
-| Optimized | −66,212.5 | `PlannerController`, unchanged, run on this map through the challenge's runner (a few minutes of search). No collision, but it finds no plan for 11 trains, which never depart | 25 / 36 | 58 / 108 |
+| Optimized | −27,655.25 | `PlannerController v2`, run on this map through the challenge's runner (about seven and a half minutes of search). Every train departs and arrives, without a collision; the six S-Bahn loops are done as they enter, as on any run | 36 / 36, 6 of them as they enter | 72 / 108 |
 
-The page rounds the baseline's score to one decimal, −270,672.8.
+The page rounds both scores to one decimal: −270,672.8 and −27,655.3.
 
-**No dispatcher can score better than −25,010.5 on Köln.** The six S-Bahn loops (S clock 1–3, S counter 1–3) start on the cell that is their destination, and flatland finishes such a train in the step it enters: its six stops are lost, 684 points each, 4,104 per train and 24,624 in all. Six local trains (RB süd 1–3, RB nord 1–3) cannot keep their timetables even on empty track, at full speed and without halting, and lose at least 386.5 points between them. The optimized run is 41,202 points above the bound, and 37,466 of them come from the 11 trains it never departs:
+**No dispatcher can score better than −25,010.5 on Köln.** The six S-Bahn loops (S clock 1–3, S counter 1–3) start on the cell that is their destination, and flatland finishes such a train in the step it enters: its six stops are lost, 684 points each, 4,104 per train and 24,624 in all. Six local trains (RB süd 1–3, RB nord 1–3) cannot keep their timetables even on empty track, at full speed and without halting, and lose at least 386.5 points between them. The optimized run is 2,644.75 points above the bound: the loops lose their 24,624, and the other 30 trains 3,031.25, for arriving late at stops and at their destinations and for leaving two stops early, where the bound allows them 386.5. Every stop of those 30 trains is served.
 
-| Trains never departed | Each loses | Each could lose as little as |
-|---|---:|---:|
-| S clock 1–3, S counter 1–3 | 6,164 (six stops lost, and the cancellation) | 4,104 (done as it enters) |
-| RB nord 1–3 | 6,052 | 1 or 0.5 |
-| ICE Frankfurt neben 1–2 | 3,476 | 0 |
-
-Telling the six S-Bahn loops to depart, and changing nothing else in the plan, scores −53,852.5 in the challenge's runner, 12,360 points better: each loop still loses its stops, but not the cancellation, and no other train is touched.
+**Three stops are booked in Python's hash order.** RB nord1, RB nord2 and RB nord3 call at Stop 2 twice, and the timetable lists five of the same eight platforms for both calls. In the optimized run each of them serves its first call at one of those shared platforms and its second at a platform listed only for the second call, both with a real stop. The challenge's reward function (`rewards_fix.py`) books a stop at `list(set(listed) & set(arrivals))[0]`; flatland's `Waypoint` is an attrs class whose hash is salted per process, so for the second call the booking falls on either platform depending on `PYTHONHASHSEED`. Booked at the shared platform, the three second calls cost 0, 17.5 and 12.25 points; at their own platforms, 8, 1 and 20.5. So whatever the seed, the optimized run scores between −27,671.5 and −27,638.75. The page shows it as scored under `PYTHONHASHSEED=0`, −27,655.25, which books all three at the shared platform: `tools/export_fixtures.py` records the seed and, for every such stop, the platform Python booked and what each platform the train stood on would add (`hash_seed` and `runs.<run>.bookings` in `data/koeln/reference.json`), and the page's engine books those stops where Python did. The three stops list the same platforms, so a seed books them alike: replayed under seeds 0 to 11, the run scored −27,655.25 or −27,655.0.
 
 Where the points go on Köln:
 
 | Penalty | Baseline | Optimized |
 |---|---:|---:|
 | Collisions (1,282.5 × speed) | 163 → −177,626.25 | — |
-| Stops never reached (684 each) | 67 → −45,828.0 | 50 → −34,200.0 |
+| Stops never reached (684 each) | 67 → −45,828.0 | 36 → −24,624.0 |
 | Stops passed without stopping (684 each) | 37 → −25,308.0 | — |
 | Trains not arrived by the end (their remaining delay) | 16 → −21,875.0 | — |
-| Never departed (4 × (the trip's travel time + 513)) | — | 11 → −27,892.0 |
-| Late at stops (0.5 per step) | 4 → −35.5 | 26 → −2,903.5 |
-| Late at the destination (1 per step) | — | 7 → −1,217.0 |
-| **Score** | **−270,672.75** | **−66,212.5** |
+| Late at stops (0.5 per step) | 4 → −35.5 | 25 → −1,895.5 |
+| Leaving a stop early (1.75 per step) | — | 2 → −29.75 |
+| Late at the destination (1 per step) | — | 8 → −1,106.0 |
+| **Score** | **−270,672.75** | **−27,655.25** |
 
 ## How it works
 
@@ -83,8 +77,10 @@ Where the points go on Köln:
  data/frankfurt/, data/koeln/   one folder per map:
    <the map's file>             the challenge's map, byte for byte (rail grid, stations,
                                 timetable, trains): neufrankfurt_19agents.json, kk_36agents.json
-   planner_actions.json         the optimized run's actions: PlannerController's plan
-   reference.json               the Python runner's scores, which the page checks against
+   planner_actions.json         the optimized run's actions: PlannerController v2's plan
+   reference.json               the Python runner's scores, which the page checks against; the hash
+                                seed they were scored under, and the stops a run booked in Python's
+                                hash order (where Python booked each, what each platform would add)
  js/maps.js                     the maps (Köln the default): files, runs, the leaderboard's figure,
                                 station names, views
             │
@@ -110,7 +106,7 @@ Where the points go on Köln:
               Method, the guide and its drawings
 ```
 
-When the page opens it reads the map from the address (`?map=frankfurt` or `?map=koeln`; Köln without one, or with one it does not know), simulates that map's two runs itself (well under a second on either map) and shows "same score as the Python runner" next to each score that matches the map's `reference.json` to the last digit; a banner would say so if one did not. The baseline runs live in the browser. The optimized run replays recorded actions: `PlannerController` plans them in Python before the first step, and the browser's engine then simulates and scores those actions like any other. The map switch loads the other map's page, its address naming the map, and keeps the run on screen.
+When the page opens it reads the map from the address (`?map=frankfurt` or `?map=koeln`; Köln without one, or with one it does not know), simulates that map's two runs itself (well under a second on either map) and shows "same score as the Python runner" next to each score that matches the map's `reference.json` to the last digit; a banner would say so if one did not. The baseline runs live in the browser. The optimized run replays recorded actions: `PlannerController v2` plans them in Python before the first step, and the browser's engine then simulates and scores those actions like any other; the few stops the Python run booked in hash order it books where `reference.json` says Python did (see Köln above). The map switch loads the other map's page, its address naming the map, and keeps the run on screen.
 
 ## Run it locally
 
@@ -134,9 +130,10 @@ git worktree add ../mobilitychallenge-pages gh-pages
 
 - **Engine parity.** `tools/export_fixtures.py` runs each map's controllers through the challenge's own runner (flatland-rl 4.2.2, Python 3.13) and records every step: actions, and each train's position, direction, state, speed, distance in the cell, reward and done flag. `tests/engine.mjs` replays all four runs in the JavaScript engine and compares every value at every step with no tolerance, plus every train's distance map on both maps, and CPython's `sum()`, set order and `round()` on 11,010 random inputs.
 - **The score's terms.** The exporter also splits every reward the reward function hands out into its terms (a crash, a stop not served, a delay, a cancellation, …), asserting that they add up to exactly what the function returned; the page's breakdown must list the same terms in the same order, for every run on both maps.
-- **Negative controls.** `tests/engine-negctl.mjs` plants small errors (braking 0.4 instead of 0.5, the higher index winning a conflict, a crash penalty of 935, one action of the plan changed, the train that waits longest at its entry entering a step early, a term booked under the wrong heading; on Köln one action of its plan changed, a crash penalty of 1,282 and a lost stop of 683, and the S-Bahn loops' destination moved off their first cell, …); the checks must catch every one.
-- **The plans.** `tools/check_plan.py --map frankfurt|koeln` runs `PlannerController` through the challenge's runner and compares its actions with each map's `planner_actions.json`; it needs the planner's two files in the challenge checkout's `src/controller/`, which are not part of this repository.
-- **The words.** `tests/story.mjs` holds every figure and moment of the Story tab and the map's situation line, on both maps, against facts worked out from the Python traces alone (arrivals, collisions, the gridlock's first step, stops served and passed, the longest wait, the trains done as they enter); `tests/guide.mjs` holds every figure in both guides against the scenario file, the penalties as the challenge's own code sets them for the map, the floor as `tools/score_floor.py` computes it on flatland's rail, and the same traces (when each penalty is booked, trains turning round at the Hauptbahnhof, the trains that never depart), and the leaderboard's −37,374 as the brief gives it.
+- **Negative controls.** `tests/engine-negctl.mjs` plants small errors (braking 0.4 instead of 0.5, the higher index winning a conflict, a crash penalty of 935, one action of the plan changed, the train that waits longest at its entry entering a step early, a term booked under the wrong heading; on Köln one action of its plan changed, a crash penalty of 1,282 and a lost stop of 683, the S-Bahn loops' destination moved off their first cell, a stop booked in hash order recorded at the train's other platform, and those stops without their record, …); the checks must catch every one.
+- **The plans.** `tools/check_plan.py --map frankfurt|koeln` runs `PlannerController v2` through the challenge's runner and compares its actions with each map's `planner_actions.json`; it needs the planner's two files in the challenge checkout's `src/controller/`, which are not part of this repository.
+- **The hash seed.** The Python tools run under `PYTHONHASHSEED=0`, the seed the plans record, and refuse to run without a fixed one: the reward function books a stop the train reached on two of its listed platforms in Python's hash order. The exporter records every such stop in `reference.json`; `tests/engine.mjs` checks that the engine books exactly those stops, each where the record says, and that the record's value for every platform is what the engine books there.
+- **The words.** `tests/story.mjs` holds every figure and moment of the Story tab and the map's situation line, on both maps, against facts worked out from the Python traces alone (arrivals, collisions, the gridlock's first step, stops served and passed, the longest wait, the trains done as they enter); `tests/guide.mjs` holds every figure in both guides against the scenario file, the penalties as the challenge's own code sets them for the map, the floor as `tools/score_floor.py` computes it on flatland's rail, and the same traces (when each penalty is booked, trains turning round at the Hauptbahnhof, every train of Köln's optimized run setting off and arriving), and the leaderboard's −37,374 as the brief gives it.
 - **The motion.** `tests/glide.mjs` holds the map's drawing against the Python traces of all four runs: no train Python moves is drawn standing (except while it inches forward inside one cell between two halts), a standing train stays at the centre of its cell, a train running steadily at half speed (Neu-Frankfurt's S-Bahns, Köln's local trains) moves exactly half a cell per step and a full-speed train a cell per step through cell centres; the old drawing, which held a train still in every step it stayed in its cell, even while it moved more slowly than a cell per step, fails these checks.
 - **The page.** Chromium suites (Playwright) for the main flows, the guide and the Story tab, the map switch and the default map, every viewport from 1920 × 1080 to 320 × 640 on both maps (both guides' seven chapters at each, their drawings' words 10 px or larger), contrast in both themes, Vici's files and its hexagon rule (nothing round).
 
@@ -163,9 +160,9 @@ TECH_NOTES.md   the engine port, Python semantics, the controllers, the floor, v
 
 ## Limits
 
-- The planner does not run in the browser; its actions are replayed. That they are exactly what `PlannerController` produces is checked by `tools/check_plan.py`, where the planner's code is available.
+- The planner does not run in the browser; its actions are replayed. That they are exactly what `PlannerController v2` produces is checked by `tools/check_plan.py`, where the planner's code is available.
 - The leaderboard's −37,374 is a figure from the project brief, not simulated: the entry's code is not public. The page shows the same figure on both maps as the target to beat.
-- On Köln the optimized run is `PlannerController` as it is: it leaves 11 of the 36 trains at their origin, and the page shows that run, not a better one.
+- Three stops of Köln's optimized run are booked in Python's hash order, so its score depends on the hash seed (between −27,671.5 and −27,638.75). The page shows the run as scored under `PYTHONHASHSEED=0`.
 - Malfunctions are off, as in the challenge's runner.
 - This branch is public, and so is the page: anyone can see and replay the optimized schedules. The planner's source is not published here.
 - Station names come from the scenario's line names; stations no line names keep their number ("Stop 17").
@@ -179,7 +176,7 @@ A card for `data/prototypes.js` in VictorPflueger/VIP, if you want it listed:
     name: "Dispatch Lab",
     kind: "prototype",
     subtitle: "T-Brain Mobility Challenge",
-    description: "Two rail scenarios of the challenge, Neu-Frankfurt and Köln, simulated in your browser, from the challenge's baseline to a planner that serves every stop on Neu-Frankfurt.",
+    description: "Two rail scenarios of the challenge, Köln and Neu-Frankfurt, simulated in your browser: from the challenge's baseline, which jams, to a planner that gets every train to its destination without a collision.",
     url: "https://victorpflueger.github.io/mobilitychallenge/",
     icon: "flag",
     tags: ["Optimization", "Rail"],

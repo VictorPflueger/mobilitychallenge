@@ -304,6 +304,7 @@ try {
     check(jumped <= first && jumped > 0, `panel: an event jumps to its step (${jumped})`);
     await page.click("#tab-method");
     check((await text(page, "#panel-method")).includes("The scores match to the last digit"), "panel: the method explains the check");
+    check(!(await text(page, "#panel-method")).includes("hash order") && !refs.frankfurt.runs.optimized.bookings.length, "panel: on Neu-Frankfurt no stop is booked in hash order, and the method says nothing of it");
     check((await page.$$(".method-symbols > li")).length === 10, "panel: the method explains the map's ten symbols, its grid cells among them");
     await page.click("#tab-score");
     check((await page.$$(".kinds tbody tr")).length === 8, "panel: the breakdown lists eight penalty kinds");
@@ -677,6 +678,23 @@ try {
     const method = await text(page, "#panel-method");
     check(method.includes("data/maps/kk_36agents.json"), "maps: the method names Köln's file");
     check(method.includes("The leaderboard's −37,374 is a figure from the project brief, not simulated here: the page shows it on both maps as the target to beat."), "maps: the method says where the current best comes from");
+    // The stops of Köln's optimized run booked in Python's hash order (data/koeln/reference.json): the
+    // method says how many, the scores other hash seeds can give (from what each recorded booking
+    // would add) and the seed the page shows.
+    const hashed = kRef.runs.optimized.bookings;
+    const bookedValue = (b) => b.options.find((o) => o.platform.join() === b.booked.join()).value;
+    const bound = (pick) => kRef.runs.optimized.reward + hashed.reduce((s, b) => s - bookedValue(b) + pick(...b.options.map((o) => o.value)), 0);
+    const exact = (v) => `${v < 0 ? "−" : ""}${new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(Math.abs(v))}`;
+    const hashText = `${["No", "One", "Two", "Three", "Four", "Five", "Six"][hashed.length]} stops of the optimized run are booked in Python's hash order`;
+    const rangeText = `whatever the seed, the optimized run scores between ${exact(bound(Math.min))} and ${exact(bound(Math.max))}`;
+    check(hashed.length > 0 && method.includes(hashText) && method.includes(rangeText) && method.includes(`PYTHONHASHSEED=${kRef.hash_seed} (${exact(kRef.runs.optimized.reward)})`),
+      `maps: the method says that ${hashed.length} stops of Köln's optimized run are booked in hash order, the range "${rangeText}" and the seed it shows, ${kRef.hash_seed}`);
+    // A train with such a stop: its timetable marks the stop.
+    await page.click("#tab-trains");
+    await page.click(`tr[data-train="${hashed[0].agent}"] .train-pick`);
+    const notes = await page.$$eval(".timetable tbody tr", (rows) => rows.map((r, k) => (r.querySelector(".stop-note") ? k : null)).filter((k) => k !== null));
+    check(JSON.stringify(notes) === JSON.stringify(hashed.filter((b) => b.agent === hashed[0].agent).map((b) => b.stop)), `maps: train ${hashed[0].agent}'s timetable marks its stops booked in hash order (rows ${notes.join(", ")})`);
+    await page.click(".train-close");
     // The guide on Köln: Köln's figures, its two runs and the current best, and Watch plays a run.
     await page.click("#btn-about");
     await page.waitForSelector(".guide-modal");

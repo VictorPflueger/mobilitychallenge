@@ -90,7 +90,9 @@ export function guideFacts({ map, runList, scenario, network, runs, floor }) {
     // trains that never set off, and trains done the moment they entered (their first cell is their destination)
     const neverLeft = run.timetable.map((tt, i) => (tt.entered === null ? i : null)).filter((i) => i !== null);
     const atTarget = run.events.filter((e) => e.kind === "enter" && e.atTarget).map((e) => e.train);
-    facts[id] = { ...f, score: run.score, worst, perTrain, neverLeft, atTarget };
+    // the trains with a stop not served (never reached, or passed without stopping)
+    const unservedBy = [...new Set(run.ledger.filter((e) => e.kind === "stop_missed" || e.kind === "stop_passed").map((e) => e.agent))];
+    facts[id] = { ...f, score: run.score, worst, perTrain, neverLeft, atTarget, unservedBy };
   }
 
   // Why the floor is above zero; and the S-Bahns among the trains too slow for their own timetables:
@@ -166,12 +168,22 @@ export function chapters(F) {
 
   // The baseline's card: its collisions, its gridlock (if it jams), arrivals and stops.
   const baselineHappens = `${count(b.collisions)} collisions.${b.gridlockFrom !== null ? ` From step ${count(b.gridlockFrom)} on, ${plural(b.stuck, "train")} block each other and nothing moves again:` : ""} ${count(b.arrived)} of ${count(b.n)} trains arrive${b.atTarget.length ? ` (${count(b.atTarget.length)} of them the moment they enter)` : ""}, and ${b.served ? `${count(b.served)} of ${count(b.stops)} stops are` : "not a single stop is"} served.`;
-  // The optimized run's card: on Neu-Frankfurt every train and stop; on Köln what it leaves out.
+  // The optimized run's card: what it gets through, and where its points come from. On Neu-Frankfurt
+  // every train and stop, and two slow S-Bahns; on Köln every train, and the stops of the trains done
+  // as they enter, lost whatever the dispatcher does.
   const left = o.neverLeft;
   const leftPoints = -left.reduce((s, i) => s + o.perTrain[i], 0);
+  const doneAtEntry = o.atTarget.slice().sort((x, y) => x - y);
+  const doneAtEntryPoints = -doneAtEntry.reduce((s, i) => s + o.perTrain[i], 0);
+  // the trains done as they enter are the ones the floor finds starting on their destination
+  const onlyTheirStopsLost = doneAtEntry.length > 0 && doneAtEntry.join() === atTarget.trains.join()
+    && o.served + atTarget.stops === o.stops && o.unservedBy.every((i) => doneAtEntry.includes(i));
+  const opening = `${o.collisions ? `${count(o.collisions)} collisions.` : "No collision and no gridlock:"}`;
   const optimizedHappens = o.served === o.stops && o.arrived === o.n
     ? `All ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and all ${count(o.served)} stops are served. ${sbahnNames.length === 2 ? `${amount(sbahnPoints)} of the ${amount(o.score)} points left come from the two S-Bahns ${sbahnNames[0]} and ${sbahnNames[1]}: even at full speed their trip takes longer than their timetable allows. ${floorText}` : floorText}`.trim()
-    : `${o.collisions ? `${count(o.collisions)} collisions.` : "No collision and no gridlock:"} ${count(o.arrived)} of ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and ${count(o.served)} of ${count(o.stops)} stops are served. The planner finds no plan without conflicts for ${plural(left.length, "train")}: they never set off, which costs ${amount(leftPoints)} of the ${amount(o.score)} points. ${floorText}`;
+    : o.arrived === o.n && onlyTheirStopsLost
+      ? `${opening} ${o.collisions ? "All" : "all"} ${count(o.n)} trains arrive by step ${count(o.lastArrival)}, ${count(doneAtEntry.length)} of them the moment they enter, and ${count(o.served)} of ${count(o.stops)} stops are served. ${amount(doneAtEntryPoints)} of the ${amount(o.score)} points come from those ${inWords(doneAtEntry.length)} (${doneAtEntry.map((i) => F.trainNames[i]).join(", ")}): they start on their destination and lose all their ${count(atTarget.stops)} stops, whatever the dispatcher does. ${floorText}`
+      : `${opening} ${count(o.arrived)} of ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and ${count(o.served)} of ${count(o.stops)} stops are served.${left.length ? ` The planner finds no plan without conflicts for ${plural(left.length, "train")}: they never set off, which costs ${amount(leftPoints)} of the ${amount(o.score)} points.` : ""} ${floorText}`;
 
   return [
     {
@@ -303,7 +315,9 @@ export function chapters(F) {
     {
       id: "results",
       nav: `${capital(inWords(cards))} results`,
-      title: o.served === o.stops ? "From gridlock to every stop served" : o.collisions === 0 && o.gridlockFrom === null ? "From gridlock to a network without collisions" : "What each dispatcher gets",
+      title: o.served === o.stops ? "From gridlock to every stop served"
+        : o.arrived === o.n ? "From gridlock to every train at its destination"
+          : o.collisions === 0 && o.gridlockFrom === null ? "From gridlock to a network without collisions" : "What each dispatcher gets",
       lead: `Dispatch Lab runs ${inWords(nRuns)} dispatchers on ${M.name}, the challenge's baseline and its own planner, and puts them next to the leaderboard's best, the target to beat. Each bar shows the points lost, on the baseline's scale: the shorter, the better.`,
       blocks: [
         {
@@ -322,7 +336,7 @@ export function chapters(F) {
             },
             {
               run: "optimized", name: "Optimized", score: score(o.score), source: "Planned in Python beforehand, replayed here",
-              does: "This page's own planner, PlannerController, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
+              does: "This page's own planner, PlannerController v2, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
               happens: optimizedHappens,
               watch: "Watch the optimized run"
             }

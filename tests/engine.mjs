@@ -12,8 +12,15 @@
 //                          (tools/export_fixtures.py, Decomposer), for every run, and the
 //                          breakdown's totals and counts per kind
 //   distance-map           the distance map of every train, cell and direction, by digest
+//   bookings               the stops a run's Python record says were booked in hash order
+//                          (data/<map>/reference.json): each a stop the engine finds reached on two
+//                          or more listed platforms, the booked platform among them, and for every
+//                          platform the train stood on, what booking it there adds to the score in
+//                          the engine, as recorded
 //   python                 sum(), set order and round() against CPython 3.13 on random inputs
 //                          (once, for both maps)
+// The runs are replayed with the bookings their Python record gives (js/engine/env.js, stopArrival);
+// a stop reached on two or more listed platforms without one fails the run.
 // Usage: node tests/engine.mjs [case ...] [--map frankfurt|koeln] [koeln:baseline ...]
 //        (no case: all of them; no map: every map)
 import { createHash } from "node:crypto";
@@ -25,16 +32,19 @@ import { PySmallIntSet, pyRound, pySum } from "../js/engine/py.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { KINDS, breakdown, simulate } from "../js/sim.js";
-import { MAPS, fixturePath, mapPath, parseCases, planPath } from "./lib/maps.mjs";
+import { MAPS, fixturePath, mapPath, parseCases, planPath, referencePath } from "./lib/maps.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
+
+/** The stops a run booked in Python's hash order, as its record gives them (or options.bookings). */
+export const bookingsOf = (name, options = {}) => options.bookings ?? read(referencePath(options.map || "frankfurt")).runs[name]?.bookings ?? [];
 
 export function makeEnv(options = {}) {
   const data = options.mapData || read(mapPath(options.map || "frankfurt"));
   const scenario = loadScenario(data);
   if (options.mutateScenario) options.mutateScenario(scenario);
-  const env = new RailEnv(scenario, options.env || {});
+  const env = new RailEnv(scenario, { ...(options.env || {}), bookings: options.bookings || [] });
   if (options.mutateEnv) options.mutateEnv(env);
   return env;
 }
@@ -81,7 +91,7 @@ function firstDifference(expected, actual) {
  */
 export function parity(name, options = {}) {
   const fixture = read(fixturePath(options.map || "frankfurt", `trace_${name}.json`));
-  const env = makeEnv(options);
+  const env = makeEnv({ ...options, bookings: bookingsOf(name, options) });
   const controller = makeController(name, options);
   let step = 0;
   let problem = null;
@@ -108,7 +118,7 @@ export function parity(name, options = {}) {
   }
   if (!problem && result.steps !== fixture.steps) problem = `episode length: Python ${fixture.steps}, engine ${result.steps}`;
   if (!problem && result.reward !== fixture.reward) problem = `score: Python ${fixture.reward}, engine ${result.reward}`;
-  if (!problem && env.ambiguous.length) problem = `a stop was reached on two platforms: ${JSON.stringify(env.ambiguous)}`;
+  if (!problem && env.ambiguous.length) problem = `a stop reached on two or more listed platforms the engine could not book as Python did: ${JSON.stringify(env.ambiguous)}`;
   return problem ? { ok: false, message: problem } : { ok: true, reward: result.reward, steps: result.steps };
 }
 
@@ -121,7 +131,8 @@ export function termsParity(name, options = {}) {
   const map = options.map || "frankfurt";
   const fixture = read(fixturePath(map, `trace_${name}.json`));
   const scenario = loadScenario(read(mapPath(map)));
-  const run = simulate(scenario, makeController(name, options));
+  const run = simulate(scenario, makeController(name, options), { bookings: bookingsOf(name, options) });
+  if (run.ambiguous.length) return { ok: false, message: `a stop reached on two or more listed platforms the engine could not book as Python did: ${JSON.stringify(run.ambiguous)}` };
   const mine = run.ledger.map((e) => [e.step, e.agent, e.kind, e.value, e.stop]);
   const theirs = fixture.terms;
   for (let i = 0; i < Math.max(mine.length, theirs.length); i += 1) {
@@ -147,6 +158,39 @@ export function termsParity(name, options = {}) {
   }
   if (run.score !== fixture.reward) return { ok: false, message: `score: Python ${fixture.reward}, page ${run.score}` };
   return { ok: true, terms: theirs.length, kinds };
+}
+
+/**
+ * The stops the run's record says Python booked in hash order, against the engine: the engine books
+ * exactly these stops among two or more listed platforms the train reached, the record's options are
+ * those platforms and its booked one is among them, and booking the stop at each option adds exactly
+ * the recorded value to the score. Returns { ok, message, count }.
+ */
+export function bookingsParity(name, options = {}) {
+  const map = options.map || "frankfurt";
+  const recorded = bookingsOf(name, options);
+  const scenario = loadScenario(read(mapPath(map)));
+  const key = ([r, c, d]) => (r * scenario.rail.width + c) * 4 + d;
+  const sorted = (xs) => [...xs].sort((a, b) => a - b).join(",");
+  const runWith = (bookings) => simulate(scenario, makeController(name, options), { bookings });
+  const stopValue = (run, b) => run.ledger.filter((e) => e.agent === b.agent && e.stop === b.stop).reduce((s, e) => s + e.value, 0);
+  const base = runWith(recorded);
+  if (base.ambiguous.length) return { ok: false, message: `stops the engine could not book as recorded: ${JSON.stringify(base.ambiguous)}` };
+  const chosen = base.choices.map((c) => `${c.agent}:${c.stop}`).sort().join(" ");
+  const listed = recorded.map((b) => `${b.agent}:${b.stop}`).sort().join(" ");
+  if (chosen !== listed) return { ok: false, message: `the engine chose among platforms at ${chosen || "no stop"}, the record lists ${listed || "none"}` };
+  for (const b of recorded) {
+    const c = base.choices.find((x) => x.agent === b.agent && x.stop === b.stop);
+    if (sorted(b.options.map((o) => key(o.platform))) !== sorted(c.platforms)) return { ok: false, message: `train ${b.agent} stop ${b.stop}: the record's platforms are not the ones the train stood on` };
+    if (!b.options.some((o) => key(o.platform) === key(b.booked)) || c.booked !== key(b.booked)) return { ok: false, message: `train ${b.agent} stop ${b.stop}: the booked platform is not one of them` };
+    for (const o of b.options) {
+      const run = key(o.platform) === key(b.booked) ? base : runWith(recorded.map((x) => (x === b ? { ...x, booked: o.platform } : x)));
+      const value = stopValue(run, b);
+      if (run.ambiguous.length || value !== o.value) return { ok: false, message: `train ${b.agent} stop ${b.stop} booked at ${o.platform.join(",")}: the engine books ${value}, the record ${o.value}` };
+      if (Math.abs(run.score - (base.score - stopValue(base, b) + o.value)) > 1e-9) return { ok: false, message: `train ${b.agent} stop ${b.stop}: the score does not move by the stop's value` };
+    }
+  }
+  return { ok: true, count: recorded.length, options: recorded.reduce((s, b) => s + b.options.length, 0) };
 }
 
 export function distanceMapParity(options = {}) {
@@ -179,7 +223,7 @@ function pythonSemantics() {
   return { ok: !problems.length, problems, counts: [fx.sums.length, fx.sets.length, fx.rounds.length], python: fx.python };
 }
 
-const CASES = ["python", "distance-map", "baseline", "optimized", "terms"];
+const CASES = ["python", "distance-map", "baseline", "optimized", "terms", "bookings"];
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { maps, cases: wanted } = parseCases(process.argv.slice(2), CASES);
@@ -208,11 +252,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         for (const run of runs) {
           const r = termsParity(run, { map });
           if (r.ok) {
-            const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 10) / 10}`);
+            const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 100) / 100}`);
             console.log(`PASS  ${map} ${run}: ${r.terms} terms identical to the Python reward function's (${listed.join(", ")})`);
           } else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
         }
         if (bad) failed += 1; else console.log(`TERMS_PARITY_OK ${map}`);
+      } else if (name === "bookings") {
+        let bad = 0;
+        for (const run of runs) {
+          const r = bookingsParity(run, { map });
+          if (r.ok) console.log(`PASS  ${map} ${run}: ${r.count ? `${r.count} stops booked in hash order as recorded; booked at any of the ${r.options} platforms their trains stood on, they add what the record says` : "no stop booked in hash order, as recorded"}`);
+          else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
+        }
+        if (bad) failed += 1; else console.log(`BOOKINGS_PARITY_OK ${map}`);
       } else {
         if (!runs.includes(name)) { console.log(`skip  ${map}: no ${name} run on this map`); continue; }
         const t0 = Date.now();

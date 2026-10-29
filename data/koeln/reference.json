@@ -3,14 +3,99 @@
  "map_sha256": "b308ff99992a155926eb8ebef5ba06e797fc1633587bd70cc84b36d8cfce02bb",
  "python": "3.13.18",
  "flatland": "4.2.2",
+ "hash_seed": "0",
  "runs": {
   "baseline": {
    "reward": -270672.75,
-   "steps": 1710
+   "steps": 1710,
+   "bookings": []
   },
   "optimized": {
-   "reward": -66212.5,
-   "steps": 1710
+   "reward": -27655.25,
+   "steps": 886,
+   "bookings": [
+    {
+     "agent": 19,
+     "stop": 3,
+     "booked": [
+      56,
+      80,
+      3
+     ],
+     "options": [
+      {
+       "platform": [
+        56,
+        80,
+        3
+       ],
+       "value": 0.0
+      },
+      {
+       "platform": [
+        57,
+        80,
+        1
+       ],
+       "value": -8.0
+      }
+     ]
+    },
+    {
+     "agent": 20,
+     "stop": 3,
+     "booked": [
+      56,
+      80,
+      3
+     ],
+     "options": [
+      {
+       "platform": [
+        56,
+        80,
+        3
+       ],
+       "value": -17.5
+      },
+      {
+       "platform": [
+        57,
+        80,
+        1
+       ],
+       "value": -1.0
+      }
+     ]
+    },
+    {
+     "agent": 21,
+     "stop": 3,
+     "booked": [
+      56,
+      80,
+      3
+     ],
+     "options": [
+      {
+       "platform": [
+        56,
+        80,
+        3
+       ],
+       "value": -12.25
+      },
+      {
+       "platform": [
+        57,
+        80,
+        1
+       ],
+       "value": -20.5
+      }
+     ]
+    }
+   ]
   }
  }
 }

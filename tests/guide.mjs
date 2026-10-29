@@ -16,7 +16,7 @@ import { mapById } from "../js/maps.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson, traceFacts } from "./lib/trace-facts.mjs";
-import { MAP_IDS, fixturePath, mapPath, planPath } from "./lib/maps.mjs";
+import { MAP_IDS, fixturePath, mapPath, planPath, referencePath } from "./lib/maps.mjs";
 
 const results = [];
 const check = (ok, what) => results.push([ok, what]);
@@ -33,7 +33,8 @@ function setup(id) {
   const scenario = loadScenario(data);
   const network = describe(data, map);
   const runList = RUNS.filter((r) => map.runs.includes(r.id));
-  const runs = new Map(runList.map((r) => [r.id, simulate(scenario, r.id === "baseline" ? new OrderedController() : new ReplayController(readJson(planPath(id)), r.id))]));
+  const reference = readJson(referencePath(id));
+  const runs = new Map(runList.map((r) => [r.id, simulate(scenario, r.id === "baseline" ? new OrderedController() : new ReplayController(readJson(planPath(id)), r.id), { bookings: reference.runs[r.id].bookings })]));
   const F = guideFacts({ map, runList, scenario, network, runs });
   const text = chapters(F).map((c) => [c.nav, c.title, c.lead, JSON.stringify(c.blocks)].join(" ")).join(" ");
   const py = Object.fromEntries(runList.map((r) => [r.id, traceFacts(r.id, data, id)]));
@@ -358,15 +359,20 @@ function checkKoeln({ data, rules, network, F, text, py, says, traces }) {
   says(`${b.arrived} of ${b.n} trains arrive (${b.atTarget.length} of them the moment they enter)`, "the baseline's arrivals");
   says(`${b.served} of ${b.stops} stops are served`, "the baseline's stops");
   says(fmt(b.score, 1), "the baseline's score");
+  // The optimized run: every train departs and arrives, no collision; the only stops it does not
+  // serve are those of the trains done as they enter, which no dispatcher can serve.
   check(o.collisions === 0 && o.gridlockFrom === null, `koeln: the optimized run has no collision (${o.collisions}) and no gridlock`);
-  says(`No collision and no gridlock: ${o.arrived} of ${o.n} trains arrive by step ${fmt(o.lastArrival)} and ${o.served} of ${o.stops} stops are served`, "the optimized run");
   const cancelled = traces.optimized.terms.filter((x) => x[2] === "cancelled").map((x) => x[1]);
   const left = o.entered.map((e, i) => (e === null ? i : null)).filter((i) => i !== null);
-  check(JSON.stringify(cancelled) === JSON.stringify(left), `koeln: the trains that never set off are the ones the reward function books as never departed (${left.length})`);
-  const leftPoints = -left.reduce((t, i) => t + o.perTrain[i], 0);
-  says(`no plan without conflicts for ${left.length} trains: they never set off, which costs ${amt(leftPoints)} of the ${amt(-o.score)} points`, "the trains the planner leaves out");
+  check(cancelled.length === 0 && left.length === 0, `koeln: in the optimized run every train sets off (${left.length} never do; ${cancelled.length} booked as never departed)`);
+  check(o.arrived === o.n && JSON.stringify(o.atTarget) === JSON.stringify(atTarget), `koeln: every train arrives (${o.arrived} of ${o.n}), the trains that start on their destination (${o.atTarget.join(", ")}) the moment they enter`);
+  says(`No collision and no gridlock: all ${o.n} trains arrive by step ${fmt(o.lastArrival)}, ${o.atTarget.length} of them the moment they enter, and ${o.served} of ${o.stops} stops are served`, "the optimized run");
+  const unserved = [...new Set(traces.optimized.terms.filter((x) => x[2] === "stop_missed" || x[2] === "stop_passed").map((x) => x[1]))].sort((x, y) => x - y);
+  check(JSON.stringify(unserved) === JSON.stringify(atTarget) && o.served + atTargetStops === o.stops, `koeln: the stops the optimized run does not serve are all those of the trains that start on their destination (${unserved.join(", ")}; ${o.stops - o.served} stops)`);
+  const atTargetPoints = -atTarget.reduce((t, i) => t + o.perTrain[i], 0);
+  says(`${amt(atTargetPoints)} of the ${amt(-o.score)} points come from those ${atTarget.length === 6 ? "six" : atTarget.length} (${atTarget.map((i) => data.schedules[i].name.replace(/_/g, " ")).join(", ")}): they start on their destination and lose all their ${atTargetStops} stops, whatever the dispatcher does`, "the trains done as they enter, in the optimized run");
   says(fmt(o.score, 1), "the optimized score");
-  says("From gridlock to a network without collisions", "the results' title");
+  says("From gridlock to every train at its destination", "the results' title");
 }
 
 const maps = process.argv.slice(2).length ? process.argv.slice(2) : MAP_IDS;

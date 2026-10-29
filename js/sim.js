@@ -1,8 +1,8 @@
 // Runs a controller through the engine and keeps what the interface shows: every train's place and
 // state at every step (the frames), where the map draws it between steps (the paths, js/glide.js),
-// each reward component (the ledger), the timetable as it was actually run, and a readable log of
-// events. The engine computes the score; this module only watches (it reads the environment after
-// each step and changes nothing).
+// each reward component (the ledger), the timetable as the reward function counted it, and a
+// readable log of events. The engine computes the score; this module only watches (it reads the
+// environment after each step and changes nothing).
 
 import { RailEnv, STATE, isOffMap, runEpisode } from "./engine/env.js";
 import { amount } from "./format.js";
@@ -27,8 +27,12 @@ export const KINDS = [
 /** The platforms of waypoint k of a train: the set of (cell, direction) keys it counts at. */
 const platformKeys = (agent, k) => new Set(agent.waypoints[k].filter((w) => w.dir !== null && w.dir >= 0).map((w) => w.cell * 4 + w.dir));
 
-export function simulate(scenario, controller) {
-  const env = new RailEnv(scenario);
+/**
+ * opts.bookings: for a run replayed from Python, the stops it booked in Python's hash order
+ * (data/<map>/reference.json), which the engine books where Python did (js/engine/env.js).
+ */
+export function simulate(scenario, controller, { bookings = [] } = {}) {
+  const env = new RailEnv(scenario, { bookings });
   env.ledger = [];
   const agents = scenario.agents;
   const n = agents.length;
@@ -43,6 +47,7 @@ export function simulate(scenario, controller) {
     action: new Int8Array(cap * n),
     lateBy: new Int16Array(cap * n),
     idle: new Int16Array(cap * n),
+    platform: new Int8Array(cap * n), // the stop whose platform the train stands on, 0 for none
     total: new Float64Array(cap),
     trainTotal: new Float64Array(cap * n)
   };
@@ -57,11 +62,13 @@ export function simulate(scenario, controller) {
     doneAt: null
   }));
   const events = [];
-  // The stops whose platform each train stands on (empty if none): the stop it calls at, then any
-  // other stop that platform counts for (see below). called: the stops a train has called at, for its
-  // progress along the timetable.
-  const at = agents.map(() => []);
+  // The platform each train stands on, as one visit: the stops it counts for (the stop the train
+  // calls at first, see below), when the train got there and when it stood still there first; null
+  // off a platform. called: the stops a train has called at, for its progress along the timetable.
+  // stoppedAt: per platform (cell and direction), the first step the train stood still on it.
+  const visit = agents.map(() => null);
   const called = agents.map((a) => a.waypoints.map(() => false));
+  const stoppedAt = agents.map(() => new Map());
   const t0 = performance.now();
 
   runEpisode(env, controller, (e, actions, rewards, total) => {
@@ -90,48 +97,46 @@ export function simulate(scenario, controller) {
         events.push({ step: t, train: i, kind: "enter", late: Math.max(0, t - a.earliestDeparture), atTarget: true });
       }
       // leaving a platform
-      if (at[i].length && a.pos !== prevPos) {
-        const [k] = at[i];
-        for (const s of at[i]) tt.departed[s] = t;
-        events.push({ step: t, train: i, kind: tt.stopped[k] === null ? "pass" : "leave", stop: k, early: Math.max(0, a.wpEd[k] - t) });
-        at[i] = [];
+      if (visit[i] && a.pos !== prevPos) {
+        const k = visit[i].stops[0];
+        events.push({ step: t, train: i, kind: visit[i].stopped === null ? "pass" : "leave", stop: k, early: Math.max(0, a.wpEd[k] - t) });
+        visit[i] = null;
       }
       // On a platform of one of its stops: the stop it calls at is the first whose platforms include
       // this one. A station called at twice may list some platforms for both calls (Köln's RB süd and
-      // RB nord at Stop 2); the reward function then counts such a platform for both, and so does the
-      // timetable, while the events and the train's progress follow the stop it calls at.
-      if (a.pos !== -1 && !at[i].length) {
+      // RB nord at Stop 2); the events and the train's progress follow the stop it calls at, the
+      // timetable the platform the reward function counts for each stop (below).
+      if (a.pos !== -1 && !visit[i]) {
         const key = a.pos * 4 + a.dir;
         const ks = [];
         platforms[i].forEach((p, k) => { if (k > 0 && p.has(key)) ks.push(k); });
         if (ks.length) {
-          at[i] = ks;
+          visit[i] = { stops: ks, arrived: t, stopped: null };
           called[i][ks[0]] = true;
-          ks.forEach((k, j) => {
-            if (tt.arrived[k] !== null) return;
-            tt.arrived[k] = t;
-            if (j === 0) events.push({ step: t, train: i, kind: "reach", stop: k, late: Math.max(0, t - a.wpLa[k]) });
-          });
+          events.push({ step: t, train: i, kind: "reach", stop: ks[0], late: Math.max(0, t - a.wpLa[ks[0]]) });
         }
       }
-      if (at[i].length && a.state === STATE.STOPPED) {
-        at[i].forEach((k, j) => {
-          if (tt.stopped[k] !== null) return;
-          tt.stopped[k] = t;
-          if (j === 0) events.push({ step: t, train: i, kind: "stop", stop: k, late: Math.max(0, tt.arrived[k] - a.wpLa[k]) });
-        });
+      if (a.pos !== -1 && a.state === STATE.STOPPED) {
+        const key = a.pos * 4 + a.dir;
+        if (!stoppedAt[i].has(key)) stoppedAt[i].set(key, t);
+        if (visit[i] && visit[i].stopped === null) {
+          visit[i].stopped = t;
+          const k = visit[i].stops[0];
+          events.push({ step: t, train: i, kind: "stop", stop: k, late: Math.max(0, visit[i].arrived - a.wpLa[k]) });
+        }
       }
       if (a.state === STATE.DONE && tt.doneAt === null) {
         tt.doneAt = t;
-        at[i] = [];
+        visit[i] = null;
         events.push({ step: t, train: i, kind: "arrive", late: Math.max(0, t - a.latestArrival) });
       }
+      frames.platform[o] = visit[i] ? visit[i].stops[0] : 0;
 
       // How far behind the timetable the train is now.
       let late = 0;
       if (a.state !== STATE.DONE && !(isOffMap(a.state) && t < a.earliestDeparture)) {
-        if (at[i].length) {
-          late = Math.max(0, tt.arrived[at[i][0]] - a.wpLa[at[i][0]]);
+        if (visit[i]) {
+          late = Math.max(0, visit[i].arrived - a.wpLa[visit[i].stops[0]]);
         } else {
           // the next timetable point after the last stop it called at (a stop it skipped is gone)
           let k = 1;
@@ -154,6 +159,21 @@ export function simulate(scenario, controller) {
   });
 
   const steps = env.elapsed;
+  // The timetable as the reward function counts it: each stop at the platform the engine booked it
+  // at (js/engine/env.js, stopArrival), when the train got there, first stood still there and left.
+  // A platform listed for both calls at a station counts for both; where the train stood on two
+  // listed platforms, the stop is the one the Python run booked.
+  agents.forEach((a, i) => {
+    const tt = timetable[i];
+    const book = env.book[i];
+    for (let k = 1; k < a.waypoints.length - 1; k += 1) {
+      const key = env.bookedAt.get(`${i}:${k}`) ?? null;
+      if (key === null) continue;
+      tt.arrived[k] = book.arrivals.get(key);
+      tt.stopped[k] = stoppedAt[i].get(key) ?? null;
+      tt.departed[k] = book.departures.get(key) ?? null;
+    }
+  });
   // Reward components booked at a train's arrival or at the end: one event per train and moment.
   const booked = new Map();
   for (const entry of env.ledger) {
@@ -175,7 +195,8 @@ export function simulate(scenario, controller) {
     ledger: env.ledger,
     timetable,
     events,
-    ambiguous: env.ambiguous,
+    ambiguous: env.ambiguous, // stops the engine could not book as the Python run did
+    choices: env.choices, // stops it booked as recorded, among two or more platforms the train stood on
     millis: performance.now() - t0
   };
 }
@@ -202,7 +223,6 @@ export function trainStatus(run, scenario, i, t) {
   const a = scenario.agents[i];
   const state = f.state[o];
   const late = f.lateBy[o];
-  const tt = run.timetable[i];
   const last = t >= run.steps;
   if (state === STATE.DONE) return { word: late ? `Arrived ${late} late` : "Arrived on time", tone: late ? "late" : "done", short: "arrived" };
   if (isOffMap(state)) {
@@ -213,10 +233,7 @@ export function trainStatus(run, scenario, i, t) {
   if (last) return { word: "Did not arrive", tone: "lost", short: "lost" };
   if (f.blocked[o]) return { word: "Blocked by a train ahead", tone: "blocked", short: "blocked" };
   const standing = state === STATE.STOPPED;
-  let platform = null;
-  for (let k = 1; k < a.waypoints.length - 1 && platform === null; k += 1) {
-    if (tt.arrived[k] !== null && tt.arrived[k] <= t && (tt.departed[k] === null || tt.departed[k] > t)) platform = k;
-  }
+  const platform = f.platform[o] || null;
   // Standing still long after it should have left: stuck (a dwell before the departure time is not).
   const idle = f.idle[o];
   const dueOut = platform ? a.wpEd[platform] : -Infinity;

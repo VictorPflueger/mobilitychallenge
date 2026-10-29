@@ -25,7 +25,7 @@ import { describe } from "../js/network.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson } from "./lib/trace-facts.mjs";
-import { MAPS, fixturePath, mapPath, parseCases, planPath } from "./lib/maps.mjs";
+import { MAPS, fixturePath, mapPath, parseCases, planPath, referencePath } from "./lib/maps.mjs";
 
 const MOVING = 3;
 const DONE = 6;
@@ -129,7 +129,8 @@ function checkMap(mapId) {
   else check(sbahns.length > 0 && JSON.stringify(sbahns) === JSON.stringify(halfSpeed), `${mapId}: the scenario's ${sbahns.length} ${slowKind} trains (trains ${sbahns[0]}–${sbahns[sbahns.length - 1]}), and only they, run at half a cell per step`);
   const atTarget = scenario.agents.filter((a) => a.initialPos === a.target).map((a) => a.handle);
   check(mapId === "frankfurt" ? atTarget.length === 0 : atTarget.length === 6, `${mapId}: ${atTarget.length ? `trains ${atTarget.join(", ")} start on their destination` : "no train starts on its destination"}`);
-  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id]()) });
+  const reference = readJson(referencePath(mapId));
+  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id](), { bookings: reference.runs[id].bookings }) });
 }
 
 function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run }) {

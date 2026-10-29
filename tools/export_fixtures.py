@@ -18,10 +18,20 @@ the challenge's own code scales them for that map, and the floor no dispatcher c
 (tools/score_floor.py), after checking the timing that floor assumes in every recorded run. It also
 writes tests/fixtures/python_semantics.json, for both maps.
 
+Stops booked in Python's hash order. The reward function books an intermediate stop at
+list(set(listed platforms) & set(arrivals))[0]. When a train stood on two or more of the platforms
+listed for a stop (a station called at twice, whose calls list some of the same platforms), which of
+them that is depends on the hash of flatland's Waypoint, an attrs class salted per process: on
+PYTHONHASHSEED. The exporter therefore runs only under a fixed PYTHONHASHSEED (the one the plans
+record), and writes into reference.json the seed and, for every run, each such stop: the train, the
+stop (k, as in the terms), the platform Python booked ([row, column, direction]) and what booking each
+platform the train stood on would add to the score. The page's engine books those stops where Python
+did (js/engine/env.js).
+
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
-  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>                write every map's fixtures
-  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check        rebuild and compare
-  <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --map koeln    one map only
+  PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>              write every map's fixtures
+  PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check      rebuild and compare
+  PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --map koeln  one map only
 The env.step and reward wrappers below are test harness only: they record, they change nothing.
 """
 import argparse
@@ -122,6 +132,7 @@ class Decomposer:
         self.TrainState = TrainState
         self.rw = env.rewards
         self.entries = []
+        self.bookings = []
         self.inner_step = self.rw.step_reward
         self.inner_done = self.rw._agent_done_or_max_episode_steps_reward
         self.rw.step_reward = self.step_reward
@@ -166,7 +177,10 @@ class Decomposer:
                 terms.append(('not_arrived', total, None))
         stops = zip(agent.waypoints[1:-1], agent.waypoints_latest_arrival[1:-1], agent.waypoints_earliest_departure[1:-1])
         for k, (alternatives, la, ed) in enumerate(stops, start=1):
+            # built as the method builds it, so the set iterates in the same order in this process
             reached = set(alternatives).intersection(set(rw.arrivals[agent.handle]))
+            if len(reached) > 1:
+                self.bookings.append(self.booking(agent, k, alternatives, reached, la, ed))
             if len(reached) == 0 or TS.STOPPED not in rw.states[agent.handle][list(reached)[0]]:
                 term = -1 * rw.intermediate_not_served_penalty
                 total += term
@@ -185,6 +199,31 @@ class Decomposer:
             self.note(elapsed_steps, agent, kind, float(value) if isinstance(value, float) else int(value), k)
         self.last_done = reward
         return reward
+
+    def booking(self, agent, k, alternatives, reached, la, ed):
+        """A stop the train reached on two or more of its listed platforms: the one the method books
+        (the first of the set, in the order this process's hash seed gives it) and, for each platform
+        the train stood on (in the timetable's order), what booking the stop there would add to the
+        score, as the method computes it."""
+        rw, TS = self.rw, self.TrainState
+
+        def value(wp):
+            if TS.STOPPED not in rw.states[agent.handle][wp]:
+                return -1 * rw.intermediate_not_served_penalty
+            v = rw.intermediate_late_arrival_penalty_factor * min(la - rw.arrivals[agent.handle][wp], 0)
+            if wp in rw.departures[agent.handle]:
+                v += rw.intermediate_early_departure_penalty_factor * min(rw.departures[agent.handle][wp] - ed, 0)
+            return v
+
+        def platform(wp):
+            return [int(wp.position[0]), int(wp.position[1]), int(wp.direction)]
+
+        visited = []
+        for wp in alternatives:
+            if wp in reached and wp not in visited:
+                visited.append(wp)
+        return {'agent': int(agent.handle), 'stop': k, 'booked': platform(list(reached)[0]),
+                'options': [{'platform': platform(wp), 'value': float(value(wp))} for wp in visited]}
 
 
 def distance_map_digest(env):
@@ -247,7 +286,16 @@ def run(tbsim, map_id, scenario):
         'actions': rec.actions,
         'trace': rec.trace,
         'terms': terms.entries,
+        # not part of the trace file: reference.json carries them, with the hash seed
+        'bookings': terms.bookings,
     }
+
+
+def hash_seed():
+    """This process's PYTHONHASHSEED, which sets how the reward function books a stop the train
+    reached on two of its listed platforms (see the module's docstring); None when it is random."""
+    seed = os.environ.get('PYTHONHASHSEED')
+    return None if seed in (None, '', 'random') else seed
 
 
 def python_semantics(seed=7):
@@ -324,10 +372,16 @@ def export_map(tbsim, map_id, args):
     results = {}
     for scenario in ([args.only] if args.only else scenarios):
         data = run(tbsim, map_id, scenario)
+        if scenario == 'optimized':
+            # the plan's own record: the seed it was scored under, and its score
+            plan = json.load(open(site_data(map_id, 'planner_actions.json')))
+            assert plan.get('hash_seed', hash_seed()) == hash_seed(), \
+                f'{map_id}: the plan was scored under PYTHONHASHSEED={plan["hash_seed"]}, this run has {hash_seed()}'
+            assert data['reward'] == plan['reward'], (map_id, 'the replayed plan scores', data['reward'], 'its file says', plan['reward'])
         results[scenario] = data
         path = fixtures(map_id, f'trace_{scenario}.json')
         rel = os.path.relpath(path, SITE)
-        text = json.dumps(data, separators=(',', ':'))
+        text = json.dumps({k: v for k, v in data.items() if k != 'bookings'}, separators=(',', ':'))
         line = (f'{map_id:9s} {scenario:9s} reward {data["reward"]:>11.2f}  steps {data["steps"]:4d}  '
                 f'done {data["done_agents"]:2d}/{len(data["initial"]["pos"])}  ')
         if args.check:
@@ -339,10 +393,12 @@ def export_map(tbsim, map_id, args):
             open(path, 'w').write(text)
             print(line + f'wrote {rel} ({len(text) // 1024} KiB)')
     if not args.only:
-        # data/<map>/reference.json: the Python runner's scores, which the page compares its own with.
+        # data/<map>/reference.json: the Python runner's scores, which the page compares its own with,
+        # the hash seed they were computed under, and each run's stops booked in hash order.
         ref = {'map': os.path.basename(MAP), 'map_sha256': results['baseline']['map_sha256'],
                'python': sys.version.split()[0], 'flatland': results['baseline']['flatland'],
-               'runs': {k: {'reward': v['reward'], 'steps': v['steps']} for k, v in results.items()}}
+               'hash_seed': hash_seed(),
+               'runs': {k: {'reward': v['reward'], 'steps': v['steps'], 'bookings': v['bookings']} for k, v in results.items()}}
         ref_path = site_data(map_id, 'reference.json')
         rel = os.path.relpath(ref_path, SITE)
         if args.check:
@@ -397,6 +453,9 @@ def main():
     ap.add_argument('--map', choices=list(MAPS), help='one map only (default: every map)')
     ap.add_argument('--only', choices=('baseline', 'optimized'), help='one run only')
     args = ap.parse_args()
+    if hash_seed() is None:
+        sys.exit('Run with a fixed PYTHONHASHSEED, the one the plans record (PYTHONHASHSEED=0): the reward '
+                 'function books some stops in Python\'s hash order, which a random seed changes from run to run.')
     repo = os.path.abspath(args.repo)
     tbsim = load_runner(repo)
     maps = chosen(args.map)

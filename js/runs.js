@@ -17,8 +17,8 @@ export const RUNS = [
     label: "Optimized",
     title: "Optimized: routes, stops and times planned",
     source: "plan",
-    does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and trains halt at their stops as close to their timetables as the track allows. A train it finds no such plan for stays off the network. Then it keeps improving the plan, a few trains at a time.",
-    how: "Planned in Python by PlannerController (a few minutes of search) and replayed here: your browser simulates and scores every step of it."
+    does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and trains halt at their stops as close to their timetables as the track allows. Then it keeps improving the plan, a few trains at a time.",
+    how: "Planned in Python by PlannerController v2 (a few minutes of search) and replayed here: your browser simulates and scores every step of it."
   }
 ];
 

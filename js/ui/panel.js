@@ -235,6 +235,8 @@ export function createPanel(root, ctx) {
     const tt = run.timetable[i];
     const st = trainStatus(run, scenario, i, t);
     const shown = (v) => (v !== null && v <= t ? count(v) : "—");
+    // the train's stops this run booked in Python's hash order (the Method tab says how)
+    const inHashOrder = new Set((reference.runs[state.run]?.bookings || []).filter((b) => b.agent === i).map((b) => b.stop));
     const rows = a.waypoints.map((_, k) => {
       const first = k === 0;
       const lastStop = k === a.waypoints.length - 1;
@@ -272,7 +274,8 @@ export function createPanel(root, ctx) {
         h("td", { class: "num" }, arrive),
         h("td", { class: "num" }, lastStop ? "" : count(a.wpEd[k])),
         h("td", { class: "num" }, lastStop ? "" : leave),
-        h("td", {}, mark ? h("span", { class: "stop-mark", dataset: { tone } }, mark) : ""));
+        h("td", {}, mark ? h("span", { class: "stop-mark", dataset: { tone } }, mark) : "",
+          inHashOrder.has(k) ? h("span", { class: "stop-note" }, "booked in Python's hash order, see Method") : ""));
     });
     const close = h("button", { class: "vc-icon-button train-close", type: "button", "aria-label": "Close the timetable" }, icon("close", 18));
     close.addEventListener("click", () => ctx.onSelect(null));
@@ -387,10 +390,43 @@ export function createPanel(root, ctx) {
           h("li", {}, h("strong", {}, "Late or early: "), `${amount(P.lateArrival)} per step late at a stop, ${amount(P.earlyDeparture)} per step leaving early, 1 per step late at the destination.`),
           h("li", {}, h("strong", {}, "Unfinished: "), `a train still on the map at the end loses its remaining delay; one that never left loses ${amount(P.cancellationFactor)} × (its travel time + ${amount(P.cancellationBuffer)}).`)),
         h("p", {}, "A collision is booked at once; a train's stops and its delay when it reaches its destination, or at the end for a train still on its way. So the score at a step lags behind what the map shows."),
+        ...runList.map((r) => hashOrderSentence(r)).filter(Boolean).map((text) => h("p", { class: "method-hash" }, text)),
         h("p", {}, floorSentence()),
         h("h3", {}, "Limits"),
         h("p", {}, limitsText()),
         h("p", { class: "muted" }, `The map is the challenge's data/maps/${map.file}, unchanged. Station names come from its line names; stations no line names stay numbered.`)));
+
+    // A run's stops the reward function booked in Python's hash order (data/<map>/reference.json, as
+    // tools/export_fixtures.py records them): which, and the scores the run gets under other hash
+    // seeds, from what booking each stop at each platform the train stood on adds to the score.
+    function hashOrderSentence(r) {
+      const list = reference.runs[r.id]?.bookings || [];
+      if (!list.length) return null;
+      const run = runs.get(r.id);
+      const ORDINAL = ["", "first", "second", "third", "fourth", "fifth"];
+      const groups = new Map();
+      for (const b of list) {
+        const tr = network.trains[b.agent];
+        const station = tr.stops[b.stop];
+        const call = tr.stops.slice(0, b.stop + 1).filter((s) => s === station).length;
+        const where = `${ORDINAL[call] || `call ${call}`}|${network.stationName(station)}`;
+        if (!groups.has(where)) groups.set(where, []);
+        groups.get(where).push(tr.name);
+      }
+      const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0]);
+      const which = and([...groups].map(([where, names]) => {
+        const [call, station] = where.split("|");
+        return `the ${call} ${names.length > 1 ? "calls" : "call"} of ${and(names)} at ${station}`;
+      }));
+      const value = (b, pick) => pick(...b.options.map((o) => o.value));
+      const booked = (b) => b.options.find((o) => o.platform.join() === b.booked.join()).value;
+      const low = run.score + list.reduce((s, b) => s - booked(b) + value(b, Math.min), 0);
+      const high = run.score + list.reduce((s, b) => s - booked(b) + value(b, Math.max), 0);
+      const exact = (v) => `${v < 0 ? "−" : ""}${amount(v)}`;
+      const most = Math.max(...list.map((b) => b.options.length));
+      const label = r.label.toLowerCase();
+      return `${inWords(list.length)} stops of the ${label} run are booked in Python's hash order: ${which}. Each of these trains stood on ${most > 2 ? "two or more" : "two"} of the platforms the timetable lists for the stop, and the challenge's reward function books it at whichever comes first in a Python set, an order that changes with the interpreter's hash seed. So the score depends on the hash seed: whatever the seed, the ${label} run scores between ${exact(low)} and ${exact(high)}. The page shows it as scored under PYTHONHASHSEED=${reference.hash_seed} (${exact(run.score)}), booking each of these stops where that run did.`;
+    }
 
     // Why zero is out of reach on this map (js/floor.js).
     function floorSentence() {

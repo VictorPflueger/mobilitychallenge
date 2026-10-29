@@ -150,9 +150,9 @@ export async function hexagonTour(page, visit) {
   await page.evaluate(() => document.querySelector(".method-symbols").scrollIntoView());
   await visit("Köln: method: reading the map");
   await page.click('.run-switch button[data-run="optimized"]');
-  await page.evaluate(() => window.dispatchLab.seek(100));
+  await page.evaluate(() => window.dispatchLab.seek(50));
   await page.click("#tab-score");
-  await visit("Köln: optimized run at step 100 (trains waiting at their entry), the scores and the current best");
+  await visit("Köln: optimized run at step 50 (trains waiting at their entry), the scores and the current best");
   await page.click("#btn-end");
   await page.click("#tab-story");
   await visit("Köln: optimized run at the end, its story");

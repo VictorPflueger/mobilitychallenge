@@ -7,9 +7,10 @@
 // is checked at five moments of a run on Neu-Frankfurt (the start of the optimized run with its
 // story, the baseline in its gridlock, the optimized run with trains waiting at their entry, the
 // optimized run at its end with a train's timetable open, and the view around the Hbf with a train
-// picked), and at four on Köln (its optimized run at the start, as the page opens without ?map=, its
-// baseline in the gridlock, its optimized run with trains held off the network, the view around
-// Stop 14 with a train picked); then in each of the guide's seven chapters, on both maps: the dialog
+// picked), and at five on Köln (its optimized run at the start, as the page opens without ?map=, its
+// baseline in the gridlock, its optimized run with trains waiting at their entry and at its end with
+// RB nord1's timetable open, and the view around Stop 14 with a train picked); then in each of the
+// guide's seven chapters, on both maps: the dialog
 // inside the window, nothing in a chapter wider than the chapter (no sideways scrolling), its
 // drawings' labels large enough to read (10 px at least) and its buttons large enough to hit.
 // Usage: node tests/layout.mjs [viewport ...]   (e.g. 1280x720)
@@ -27,7 +28,9 @@ const STATES = [
   { name: "around the Hbf, a train picked", url: "?map=frankfurt&run=baseline&step=700", mustName: "Hbf", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } },
   { name: "Köln, optimized at the start (no ?map=)", url: "", situation: false, mustName: "Essen" },
   { name: "Köln, baseline in its gridlock", url: "?map=koeln&run=baseline&step=600", situation: "Gridlock", mustName: "Essen" },
-  { name: "Köln, optimized with trains held off", url: "?map=koeln&run=optimized&step=600", situation: "wait at their entry", mustName: "Essen" },
+  { name: "Köln, optimized with trains waiting at their entry", url: "?map=koeln&run=optimized&step=50", situation: "wait at their entry", mustName: "Essen" },
+  // a timetable with a stop booked in Python's hash order, and its note
+  { name: "Köln, optimized at the end, RB nord1's timetable open", url: "?map=koeln&run=optimized&step=1710", mustName: "Essen", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="19"] .train-pick'); } },
   { name: "Köln, around Stop 14, a train picked", url: "?map=koeln&run=baseline&step=150", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); await page.click("#tab-trains"); await page.click('tr[data-train="16"] .train-pick'); } }
 ];
 const GUIDES = [{ map: "frankfurt", url: "?map=frankfurt&run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }];
