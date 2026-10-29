@@ -93,7 +93,7 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 
 ## 7. Verification log
 
-28 Oct 2026, first release; 29 Oct 2026, the guide, the Story tab and the new estimate, then trains drawn at their own speed, then Köln as a second map. The last full run, on both maps:
+28 Oct 2026, first release; 29 Oct 2026, the guide, the Story tab and the new estimate, then trains drawn at their own speed, then Köln as a second map, then the grid of cells under the map with its switch. The last full run, on both maps:
 
 | Check | Result |
 |---|---|
@@ -105,4 +105,4 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 | `tests/data.mjs` | both maps are the challenge's byte for byte; their plans, scores, traces and rules were recorded on them; the page's, the tests' and the tools' lists of maps agree |
 | `tests/story.mjs`, `tests/guide.mjs` | 117 and 167 checks: every figure and moment of the Story tab and of both guides agrees with the Python traces, the scenario and the rules; the floors (−944 and −25,010.5) are the same in the browser and on flatland's rail |
 | `tests/glide.mjs` | 62 checks, the map's motion on all five runs against the Python traces: no train Python moves is drawn standing (2,547, 4,710 and 5,028 moving steps on Neu-Frankfurt, 3,588 and 5,317 on Köln; the 21, 52, 19 and 21 steps of inching inside a cell between two halts are drawn standing), every standing train still at its cell's centre, the S-Bahns exactly half a cell per step in Neu-Frankfurt's estimate run, full-speed trains a cell per step through cell centres, never backwards, never more than a cell in a step, Köln's loops never drawn; the old drawing and a drawing at the speed counter's distance both fail |
-| Browser suites | smoke (main flows, guide, story, an S-Bahn moving in every frame at ×1, the map switch and Köln's page), layout (9 viewports × 9 states on both maps, and both guides' 7 chapters), hexagon (both themes, both maps, the guides included), tokens (both themes), page icon, Vici's files: all pass |
+| Browser suites | smoke (main flows, guide, story, an S-Bahn moving in every frame at ×1, the map switch and Köln's page, the grid under both maps and its switch), layout (9 viewports × 9 states on both maps, the map's tools inside its panel, and both guides' 7 chapters), hexagon (both themes, both maps, the guides included), tokens (both themes), page icon, Vici's files: all pass |

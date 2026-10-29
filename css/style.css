@@ -28,6 +28,10 @@
   --run-baseline: var(--vc-data-8);
   --run-estimate: var(--vc-data-5);
   --run-optimized: var(--vc-data-2);
+  /* The lines of the grid under the map: ink at 7 % on the canvas, an equally faint step in both
+     themes (about 0.05 in OKLab lightness). Vici's border-subtle, the honeycomb's line, would step
+     nearly five times as far on the dark canvas as on the light one. */
+  --grid-line: color-mix(in oklab, var(--vc-text) 7%, var(--vc-bg-sunken));
 }
 
 /* Fluid root size for projectors: 15 px at 1280 px wide, about 17 px at 1920 px, at most 18 px at

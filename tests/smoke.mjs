@@ -8,6 +8,9 @@
 //   panel     the tabs by keyboard, the trains table, a train's timetable, the events and a jump
 //             to one, the method
 //   map       views, the legend strip, a train picked on the map
+//   grid      the grid of cells under the map, on both maps: one line per cell edge, under the
+//             network, its cells on the drawing's cells in both views, faint in both themes; the
+//             Grid switch hides and shows it, and the browser remembers the choice
 //   guide     opens on a first visit; its seven chapters by Next, Back and the chapter list; the
 //             drawings, the penalties and the four results with the Python runner's scores; a
 //             run's Watch button plays that run with its story beside it
@@ -56,6 +59,57 @@ async function open({ intro = false, url = "", viewport = { width: 1600, height:
 const ready = (page) => page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
 const stepOnScreen = (page) => page.evaluate(() => Math.floor(window.dispatchLab.state.t));
 const text = (page, sel) => page.$eval(sel, (el) => el.textContent.trim());
+
+/**
+ * The grid under the map as the page draws it: its lines and canvas, whether it shows, its place
+ * under the network, how far its cell corners land from the drawing's (screen pixels), and its
+ * line and canvas colours as the browser resolves them (sRGB bytes).
+ */
+const gridFacts = (page) => page.evaluate(() => {
+  const root = document.querySelector("#map");
+  const layer = root.querySelector(".map-grid");
+  const view = root.querySelector(".map-svg");
+  const lines = layer.querySelector(".grid-lines");
+  const canvas = layer.querySelector(".grid-canvas");
+  const d = lines.getAttribute("d");
+  const rgb = (css) => {
+    const c = document.createElement("canvas").getContext("2d");
+    c.fillStyle = css;
+    c.fillRect(0, 0, 1, 1);
+    return [...c.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+  };
+  const shown = getComputedStyle(layer).display !== "none" && getComputedStyle(layer).visibility === "visible";
+  const a = view.getScreenCTM();
+  const b = shown ? layer.getScreenCTM() : null;
+  let apart = null;
+  if (a && b) {
+    apart = 0;
+    const { W, H } = { W: +canvas.getAttribute("width"), H: +canvas.getAttribute("height") };
+    for (const [x, y] of [[0, 0], [W, H], [Math.round(W / 3), Math.round(H / 2)], [Math.round(W * 0.7), Math.round(H * 0.3)]]) {
+      const p = new DOMPoint(x, y).matrixTransform(a);
+      const q = new DOMPoint(x, y).matrixTransform(b);
+      apart = Math.max(apart, Math.hypot(p.x - q.x, p.y - q.y));
+    }
+  }
+  const button = root.querySelector(".grid-button");
+  return {
+    state: root.dataset.grid, shown, pressed: button?.getAttribute("aria-pressed"), label: button?.textContent,
+    down: (d.match(/V/g) || []).length, across: (d.match(/H/g) || []).length,
+    canvas: ["x", "y", "width", "height"].map((k) => +canvas.getAttribute(k)),
+    under: !!(layer.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING) && getComputedStyle(layer).zIndex === "auto" && getComputedStyle(layer).pointerEvents === "none",
+    apart, line: rgb(getComputedStyle(lines).stroke), ground: rgb(getComputedStyle(canvas).fill),
+    stored: localStorage.getItem("dl.grid"), theme: document.documentElement.dataset.theme
+  };
+});
+// OKLab lightness of sRGB bytes (Björn Ottosson's OKLab, as CSS Color 4 uses it).
+const oklabL = ([r, g, b]) => {
+  const lin = (v) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [R, G, B] = [r, g, b].map(lin);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+};
 
 try {
   if (wanted("boot")) {
@@ -209,7 +263,7 @@ try {
     check(jumped <= first && jumped > 0, `panel: an event jumps to its step (${jumped})`);
     await page.click("#tab-method");
     check((await text(page, "#panel-method")).includes("The scores match to the last digit"), "panel: the method explains the check");
-    check((await page.$$(".method-symbols > li")).length === 9, "panel: the method explains the map's nine symbols");
+    check((await page.$$(".method-symbols > li")).length === 10, "panel: the method explains the map's ten symbols, its grid cells among them");
     await page.click("#tab-score");
     check((await page.$$(".kinds tbody tr")).length === 8, "panel: the breakdown lists eight penalty kinds");
     check(!errors.length, `panel: no console errors (${errors.join(" | ")})`);
@@ -239,6 +293,68 @@ try {
     check(await page.getAttribute(`.train[data-train="${box.id}"]`, "data-selected") === "true" && await page.isVisible(".train-detail"), `map: a click on train ${box.id} picks it`);
     check(!errors.length, `map: no console errors (${errors.join(" | ")})`);
     await context.close();
+  }
+
+  if (wanted("grid")) {
+    const before = results.length;
+    const { context, page, errors } = await open({ url: "?run=optimized&step=250" });
+    await ready(page);
+    const size = () => page.evaluate(() => ({ W: window.dispatchLab.scenario.rail.width, H: window.dispatchLab.scenario.rail.height }));
+    const f = await size();
+    let g = await gridFacts(page);
+    check(g.state === "on" && g.shown && g.pressed === "true" && g.label === "Grid" && g.stored === null, `grid: on a first visit the grid shows and Grid is pressed (${g.state}, pressed ${g.pressed})`);
+    check(g.down === f.W + 1 && g.across === f.H + 1 && g.canvas.join(",") === `0,0,${f.W},${f.H}`, `grid: Neu-Frankfurt's ${f.W} × ${f.H} cells, a line along every cell edge (${g.down} down, ${g.across} across) on a canvas the grid's size (${g.canvas.join(", ")})`);
+    check(g.under, "grid: it lies under the network and lets every click through");
+    check(g.apart !== null && g.apart < 0.05, `grid: its cells sit on the drawing's cells in the whole network (${g.apart?.toFixed(3)} px apart at most)`);
+    await page.click('.map-views button:has-text("Around the Hbf")');
+    g = await gridFacts(page);
+    check(g.apart !== null && g.apart < 0.05, `grid: and around the Hbf (${g.apart?.toFixed(3)} px)`);
+    // Faint in both themes: a small step in lightness from the canvas, about the same in each.
+    const light = oklabL(g.line) - oklabL(g.ground);
+    await page.click(".theme-toggle");
+    g = await gridFacts(page);
+    const dark = oklabL(g.line) - oklabL(g.ground);
+    const faint = (v) => Math.abs(v) >= 0.03 && Math.abs(v) <= 0.08;
+    check(g.theme === "dark" && faint(light) && faint(dark), `grid: its lines stay faint in both themes, a lightness step of ${light.toFixed(3)} from the canvas in the light theme and ${dark.toFixed(3)} in the dark one (OKLab; 0.03 to 0.08 wanted)`);
+    await page.click(".theme-toggle");
+    // The switch: off, remembered, and on again.
+    await page.click(".grid-button");
+    g = await gridFacts(page);
+    check(g.state === "off" && !g.shown && g.pressed === "false" && g.stored === "off", `grid: Grid hides it and is no longer pressed (${g.state}, pressed ${g.pressed}, stored ${g.stored})`);
+    await page.reload();
+    await ready(page);
+    g = await gridFacts(page);
+    check(g.state === "off" && !g.shown && g.pressed === "false", "grid: the browser remembers it off on the next visit");
+    // Köln, from the header: the choice carries over, then Köln's own grid.
+    await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
+    await ready(page);
+    g = await gridFacts(page);
+    check(g.state === "off" && !g.shown && g.pressed === "false", "grid: off on Köln too");
+    await page.click(".grid-button");
+    g = await gridFacts(page);
+    check(g.state === "on" && g.shown && g.pressed === "true" && g.stored === null, `grid: Grid shows it again and forgets the choice (${g.state}, stored ${g.stored})`);
+    const k = await size();
+    check(g.down === k.W + 1 && g.across === k.H + 1 && g.canvas.join(",") === `0,0,${k.W},${k.H}`, `grid: Köln's ${k.W} × ${k.H} cells, a line along every cell edge (${g.down} down, ${g.across} across)`);
+    check(g.apart !== null && g.apart < 0.05, `grid: Köln's cells sit on the drawing's cells in the whole network (${g.apart?.toFixed(3)} px)`);
+    await page.click('.map-views button:has-text("Around Stop 14")');
+    g = await gridFacts(page);
+    check(g.apart !== null && g.apart < 0.05, `grid: and around Stop 14 (${g.apart?.toFixed(3)} px)`);
+    // A train in view, on top at its centre, still takes a click with the grid under it.
+    await page.click('.run-switch button[data-run="baseline"]');
+    await page.evaluate(() => window.dispatchLab.seek(150));
+    const train = await page.evaluate(() => {
+      for (const el of document.querySelectorAll('.train:not([style*="none"])')) {
+        const r = el.getBoundingClientRect();
+        const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+        if (document.elementFromPoint(x, y)?.closest(".train") === el) return { x, y, id: el.dataset.train };
+      }
+      return null;
+    });
+    if (train) await page.mouse.click(train.x, train.y);
+    check(train && await page.getAttribute(`.train[data-train="${train.id}"]`, "data-selected") === "true", `grid: with the grid on, a click on train ${train?.id} around Stop 14 still picks it`);
+    check(!errors.length, `grid: no console errors (${errors.join(" | ")})`);
+    await context.close();
+    if (results.slice(before).every(([ok]) => ok)) console.log("GRID_OK maps=frankfurt,koeln");
   }
 
   if (wanted("once")) {

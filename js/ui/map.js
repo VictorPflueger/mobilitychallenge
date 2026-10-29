@@ -1,4 +1,5 @@
-// The rail network of the map on screen and its trains, drawn in SVG on Vici's honeycomb canvas.
+// The rail network of the map on screen and its trains, drawn in SVG on Vici's honeycomb canvas,
+// over the faint squares of the grid the railway is laid out on (which the reader can switch off).
 // Tracks, platforms and buffer stops scale with the panel; train markers and labels keep their size
 // on screen, so they stay legible on a projector and on a laptop. Colours come from classes in
 // css/map.css (Vici's tokens), so a theme change repaints the map. Nothing in it is round: trains are
@@ -20,6 +21,26 @@ const MARKER_MAX = 26;  // trains on neighbouring tracks barely overlap
 const NUMBER_MIN = 17;  // below this width the number is left out (the title and the table name it)
 const LABEL_PX = 13;    // station label size on screen
 
+// The grid is on unless the reader switched it off; the browser remembers that choice.
+const GRID_KEY = "dl.grid";
+function gridChosen() {
+  try { return localStorage.getItem(GRID_KEY) !== "off"; } catch { return true; }
+}
+function rememberGrid(on) {
+  try {
+    if (on) localStorage.removeItem(GRID_KEY);
+    else localStorage.setItem(GRID_KEY, "off");
+  } catch { /* storage blocked: the grid is on again next time */ }
+}
+
+/** Every cell edge of a W × H grid as path data, in cell units: W + 1 lines down, H + 1 across. */
+export function gridPath(W, H) {
+  const d = [];
+  for (let x = 0; x <= W; x += 1) d.push(`M${x} 0V${H}`);
+  for (let y = 0; y <= H; y += 1) d.push(`M0 ${y}H${W}`);
+  return d.join("");
+}
+
 /**
  * The two views of a map (js/maps.js): the whole network, and its busy middle (around Neu-Frankfurt's
  * Hauptbahnhof, around Köln's hub, Stop 14). Boxes in cell units [x, y, width, height].
@@ -39,6 +60,15 @@ export function createMap(root, { map, scenario, network, onSelect }) {
   const drawing = trackDrawing(rail);
   const reduced = prefersReducedMotion();
 
+  // The grid the railway is laid out on, W × H square cells, under everything else: a plain canvas
+  // over the grid (the honeycomb stays the page's background around it) and a faint line along
+  // every cell edge. A track runs through the centre of its cell; a train fills one. It is a layer
+  // of its own over the whole panel, lined up with the drawing's cells by layout(), so that it runs
+  // on under the caption and the legend as the honeycomb does, rather than stopping at the drawing.
+  let gridOn = gridChosen();
+  const grid = svg("svg", { class: "map-grid", "aria-hidden": "true", preserveAspectRatio: "none" },
+    svg("rect", { class: "grid-canvas", x: 0, y: 0, width: W, height: H }),
+    svg("path", { class: "grid-lines", d: gridPath(W, H), "vector-effect": "non-scaling-stroke" }));
   const tracks = svg("g", { class: "map-tracks" },
     svg("path", { class: "track", d: drawing.tracks, "vector-effect": "non-scaling-stroke" }),
     svg("path", { class: "buffer", d: drawing.buffers, "vector-effect": "non-scaling-stroke" }));
@@ -92,15 +122,28 @@ export function createMap(root, { map, scenario, network, onSelect }) {
     situationLine);
   const legend = buildLegend();
   const viewButtons = new Map();
-  const tools = h("div", { class: "segmented map-views", role: "group", "aria-label": "Map view" },
+  const views = h("div", { class: "segmented map-views", role: "group", "aria-label": "Map view" },
     Object.entries(VIEWS).map(([id, v]) => {
       const b = h("button", { type: "button", "aria-pressed": String(id === viewId) }, v.label);
       b.addEventListener("click", () => setView(id));
       viewButtons.set(id, b);
       return b;
     }));
+  // The grid switch: a toggle button in the views' style, pressed while the grid shows.
+  const gridButton = h("button", { type: "button", class: "grid-button", "aria-pressed": String(gridOn) }, "Grid");
+  gridButton.addEventListener("click", () => setGrid(!gridOn));
+  const tools = h("div", { class: "map-tools" }, views, h("div", { class: "segmented map-grid-switch" }, gridButton));
   root.dataset.map = map.id;
-  root.append(view, caption, tools, legend);
+  root.dataset.grid = gridOn ? "on" : "off";
+  root.append(grid, view, caption, tools, legend);
+
+  /** Shows or hides the grid, and remembers the choice in this browser. */
+  function setGrid(on) {
+    gridOn = on;
+    root.dataset.grid = on ? "on" : "off";
+    gridButton.setAttribute("aria-pressed", String(on));
+    rememberGrid(on);
+  }
 
   function setView(id) {
     viewId = id;
@@ -119,12 +162,17 @@ export function createMap(root, { map, scenario, network, onSelect }) {
   let shown = box; // the part of the drawing on screen: the view box widened to the panel's shape
   function layout() {
     root.style.setProperty("--legend-h", `${legend.offsetHeight}px`);
+    root.style.setProperty("--tools-span", `${tools.offsetWidth}px`);
     const r = view.getBoundingClientRect();
     if (!r.width || !r.height) return;
     ppu = Math.min(r.width / box[2], r.height / box[3]);
     const w = r.width / ppu;
     const hh = r.height / ppu;
     shown = [box[0] - (w - box[2]) / 2, box[1] - (hh - box[3]) / 2, w, hh];
+    // The grid layer fills the panel (css/map.css) at the drawing's scale, its cells on the drawing's.
+    const m = root.getBoundingClientRect();
+    grid.setAttribute("viewBox", [shown[0] - (r.left - m.left) / ppu, shown[1] - (r.top - m.top) / ppu, m.width / ppu, m.height / ppu].map((v) => +v.toFixed(4)).join(" "));
+    grid.dataset.aligned = "true";
     markerPx = Math.max(MARKER_MIN, Math.min(MARKER_MAX, 1.35 * ppu));
     view.dataset.numbers = String(markerPx >= NUMBER_MIN);
     placeLabels();
@@ -225,10 +273,11 @@ export function createMap(root, { map, scenario, network, onSelect }) {
   const ro = new ResizeObserver(() => layout());
   ro.observe(root);
   ro.observe(legend);
+  ro.observe(tools);
   document.addEventListener("vc:themechange", () => render(lastT, true));
   requestAnimationFrame(layout);
 
-  return { setRun, render, select, setCaption, setSituation, layout, setView };
+  return { setRun, render, select, setCaption, setSituation, layout, setView, setGrid };
 }
 
 /** The stations' platform boxes in cell units: [{ id, x0, x1, y0, y1, station }]. */
@@ -321,8 +370,15 @@ export function trainSwatch(tone, motion) {
     svg("polygon", { class: "train-hex", points: HEX(1) }));
 }
 
-/** The network's symbols: a track with a switch, a level-free crossing, platforms, a buffer stop. */
+/**
+ * The network's symbols: a track with a switch, a level-free crossing, platforms, a buffer stop,
+ * and the grid's cells (two of them, and the edges of their neighbours).
+ */
 export function trackGlyph(kind) {
+  if (kind === "cell") {
+    return svg("svg", { class: "legend-line cell", viewBox: "0 0 28 12", "aria-hidden": "true" },
+      svg("path", { class: "grid-lines", d: "M0 0.5 H28 M0 11.5 H28 M2.5 0 V12 M13.5 0 V12 M24.5 0 V12" }));
+  }
   if (kind === "platform") {
     return svg("svg", { class: "legend-line platform", viewBox: "0 0 28 12", "aria-hidden": "true" }, svg("rect", { x: 3, y: 1, width: 22, height: 10, rx: 1.5 }));
   }

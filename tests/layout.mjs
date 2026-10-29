@@ -1,9 +1,10 @@
 // The layout from a 1920 × 1080 projector over a tablet down to a phone: no sideways scrolling, the header's badges
 // never run into the KPI tiles, the control bar keeps one row on laptops and projectors and its step
-// label is never cut, the map keeps a usable size, the caption, the views and the legend never cover
-// each other or the drawing, station names never cover each other and stay on screen, and every
-// control is large enough to hit: 40 × 40 px at least (WCAG 2.5.8 asks 24; projector use asks more),
-// 44 px for the main ones. Each viewport is checked at five moments of a run (the start of the
+// label is never cut, the map keeps a usable size, the caption, the tools (the two views and the grid
+// switch, inside the map's panel) and the legend never cover each other or the drawing, station
+// names never cover each other and stay on screen, and every control is large enough to hit: 40 × 40
+// px at least (WCAG 2.5.8 asks 24; projector use asks more), 44 px for the main ones. Each viewport
+// is checked at five moments of a run (the start of the
 // optimized run with its story, the baseline in its gridlock, the estimate with trains waiting at
 // their entry, the estimate at its end with a train's timetable open, and the view around the Hbf
 // with a train picked), and at four on Köln (its optimized run at the start, its baseline in the
@@ -48,20 +49,24 @@ function inPage(mustName) {
   const kpis = [...document.querySelectorAll(".kpi")].map((e) => e.getBoundingClientRect());
   for (const b of badges) for (const k of kpis) if (b.left < k.right - 1 && k.left < b.right - 1 && b.top < k.bottom - 1 && k.top < b.bottom - 1) out.problems.push("a header badge overlaps a KPI tile");
   // Everything inside the window horizontally (the panel's own scrollers excepted).
-  for (const sel of [".app-header", ".controls", ".map-panel", ".side-panel", ".app-footer", ".map-caption", ".map-views", ".map-legend"]) {
+  for (const sel of [".app-header", ".controls", ".map-panel", ".side-panel", ".app-footer", ".map-caption", ".map-tools", ".map-legend"]) {
     const r = rect(sel);
     if (r && (r.l < -1 || r.r > vw + 1)) out.problems.push(`${sel} leaves the window (${Math.round(r.l)}–${Math.round(r.r)} of ${vw})`);
   }
-  // The map keeps a usable size; caption, views and legend do not cover each other.
+  // The map keeps a usable size; caption, tools (the views and the grid switch) and legend do not
+  // cover each other, and the tools stay inside the map's panel.
   const map = rect(".map-svg");
   if (!map || map.w < 240 || map.h < 150) out.problems.push(`the map is too small (${map ? `${Math.round(map.w)}×${Math.round(map.h)}` : "missing"})`);
   const cap = rect(".map-caption");
-  const views = rect(".map-views");
+  const views = rect(".map-tools");
+  const panel = rect(".map-panel");
+  if (views && panel && (views.l < panel.l - 1 || views.r > panel.r + 1)) out.problems.push(`the map's tools leave its panel (${Math.round(views.l)}–${Math.round(views.r)} of ${Math.round(panel.l)}–${Math.round(panel.r)})`);
+  if (!document.querySelector(".map-tools .grid-button")) out.problems.push("the grid switch is missing");
   const legend = rect(".map-legend");
-  if (overlap(cap, views)) out.problems.push("the map caption and the views overlap");
+  if (overlap(cap, views)) out.problems.push("the map caption and the tools overlap");
   if (overlap(cap, legend)) out.problems.push("the map caption and the legend overlap");
-  if (overlap(views, legend)) out.problems.push("the views and the legend overlap");
-  for (const [name, r] of [["caption", cap], ["views", views], ["legend", legend]]) if (overlap(map, r)) out.problems.push(`the ${name} covers the drawing`);
+  if (overlap(views, legend)) out.problems.push("the tools and the legend overlap");
+  for (const [name, r] of [["caption", cap], ["tools", views], ["legend", legend]]) if (overlap(map, r)) out.problems.push(`the ${name} covers the drawing`);
   if (!legend) out.problems.push("the legend is missing");
   // Station names: inside the drawing, never on top of each other.
   const labels = [...document.querySelectorAll(".map-svg .station-label")].map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom }; });

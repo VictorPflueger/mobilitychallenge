@@ -22,6 +22,17 @@
 /* Numbers only where the markers are large enough to read them. */
 .map-svg[data-numbers="false"] .train-num { display: none; }
 
+/* The grid the railway is laid out on, behind the drawing and over the whole panel (js/ui/map.js
+   lines its cells up with the drawing's): a plain canvas over the grid, so the honeycomb stays the
+   page's background around it, and a faint line along every cell edge (--grid-line, css/style.css),
+   one screen pixel wide at any zoom. The Grid switch hides it, and the honeycomb shows again.
+   Hidden until it is lined up. */
+.map-grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.map-grid:not([data-aligned]) { visibility: hidden; }
+#map[data-grid="off"] .map-grid { display: none; }
+.grid-canvas { fill: var(--vc-bg-sunken); }
+.grid-lines { fill: none; stroke: var(--grid-line); stroke-width: 1px; shape-rendering: crispEdges; }
+
 /* The network at rest: ink lines, platforms on the surface, buffer stops as bars. */
 .track { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 2.4px; stroke-linecap: square; stroke-linejoin: miter; }
 .buffer { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 3px; stroke-linecap: butt; }
@@ -105,10 +116,12 @@
 .cap-situation[data-tone="success"] { color: var(--vc-success-text); }
 .cap-situation[data-tone="success"] .cap-dot { background: var(--vc-success-solid); }
 
-/* ---- the views (floating, as Rebate Hunter's board views) ------------------------------------------ */
-#map { --tools-w: 316px; }
-.map-views { position: absolute; top: 12px; right: 12px; z-index: 30; box-shadow: var(--vc-shadow-md); }
-.map-views button { font-size: var(--vc-font-size-sm); }
+/* ---- the tools: the views and the grid switch (floating, as Rebate Hunter's board views) ---------- */
+/* The caption keeps clear of them: their width is measured by js/ui/map.js (--tools-span). */
+#map { --tools-w: calc(var(--tools-span, 306px) + 12px); }
+.map-tools { position: absolute; top: 12px; right: 12px; z-index: 30; display: flex; gap: 8px; }
+.map-tools > .segmented { box-shadow: var(--vc-shadow-md); }
+.map-tools button { font-size: var(--vc-font-size-sm); }
 
 /* ---- the legend strip ---------------------------------------------------------------------------- */
 .map-legend {
@@ -141,6 +154,9 @@
 .legend-line.platform rect { fill: var(--vc-surface); stroke: var(--vc-border-strong); stroke-width: 1.5px; }
 .legend-line.crossing rect { fill: var(--vc-bg-sunken); stroke: var(--vc-neutral-solid); stroke-width: 1.5px; }
 .method-symbols .legend-line.crossing rect { fill: var(--vc-surface); }
+/* The grid's symbol in the Method tab: its squares a little stronger than on the map, to read at
+   that size on the panel. */
+.legend-line.cell .grid-lines { stroke: var(--vc-border); stroke-width: 1px; }
 
 /* A laptop's map panel (1,280 px windows): the legend strip tightens to stay on one row. */
 @container mappanel (max-width: 820px) {
@@ -152,7 +168,7 @@
    legend strip wraps to more rows (the drawing area shrinks with it). */
 @container mappanel (max-width: 720px) {
   #map { --tools-w: 0px; }
-  .map-views { top: 92px; }
+  .map-tools { top: 92px; }
   .map-svg { top: 148px; height: calc(100% - 148px - var(--legend-h, 44px) - 24px); left: 6px; width: calc(100% - 12px); }
   .map-legend { padding: 7px 12px; }
   .legend-items { gap: 4px 12px; }
@@ -164,15 +180,21 @@
 @container mappanel (max-width: 560px) {
   .map-caption .cap-sub { display: none; }
 }
-/* A small phone: the situation in its short words. */
+/* A small phone: the situation in its short words, and the tools a little tighter, so that the
+   views and the grid switch share one row. */
 @container mappanel (max-width: 379px) {
   .map-caption .sit-long { display: none; }
   .map-caption .sit-short { display: block; }
+  .map-tools { gap: 6px; }
+  .map-tools .segmented button { padding: 0 8px; }
 }
 
-/* Forced colours (Windows contrast themes): tracks and trains keep visible lines. */
+/* Forced colours (Windows contrast themes): tracks and trains keep visible lines; the grid stays
+   quiet (grey lines on the canvas). */
 @media (forced-colors: active) {
   .cap-dot { forced-color-adjust: none; background: CanvasText; }
+  .grid-canvas { forced-color-adjust: none; fill: Canvas; }
+  .grid-lines { forced-color-adjust: none; stroke: GrayText; }
   .track, .buffer, .platform, .level-free { forced-color-adjust: none; stroke: CanvasText; }
   .train-hex { forced-color-adjust: none; stroke: CanvasText; }
   .train-num, .station-label { forced-color-adjust: none; fill: CanvasText; stroke: Canvas; }
