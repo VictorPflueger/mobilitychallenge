@@ -21,7 +21,8 @@ const SUITES = [
   { id: "negctl", what: "the engine checks catch planted changes", file: "tests/engine-negctl.mjs" },
   { id: "story", what: "the Story tab's figures, moments and situation line against the Python traces", file: "tests/story.mjs" },
   { id: "guide", what: "the guide's figures against the scenario, the challenge's rules and the Python traces", file: "tests/guide.mjs" },
-  { id: "smoke", what: "boot, playback, runs, panel, map, guide, story, failures (Chromium)", file: "tests/smoke.mjs", browser: true },
+  { id: "glide", what: "the map moves each train at its own speed and keeps a standing train at its cell's centre, against the Python traces", file: "tests/glide.mjs" },
+  { id: "smoke", what: "boot, playback, runs, panel, map, guide, story, glide, motion, failures (Chromium)", file: "tests/smoke.mjs", browser: true },
   { id: "layout", what: "viewports from 1920×1080 to 320×640, the guide's chapters, touch targets (Chromium)", file: "tests/layout.mjs", browser: true },
   { id: "hexagon", what: "nothing round: the files, and the rendered app in both themes (Chromium)", file: "tests/hexagon.mjs", browser: true }
 ];

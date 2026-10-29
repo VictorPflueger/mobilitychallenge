@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   node:
-    name: Engine against flatland, map data, story and guide figures, colours, page icon, Vici's files (Node.js only)
+    name: Engine against flatland, map data, story and guide figures, train motion, colours, page icon, Vici's files (Node.js only)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -31,7 +31,7 @@ jobs:
           node-version: 22
       - name: Run the suites
         shell: bash
-        run: node tests/run-all.mjs tokens page-icon vici-files data engine negctl story guide 2>&1 | tee "$RUNNER_TEMP/node.log"; exit "${PIPESTATUS[0]}"
+        run: node tests/run-all.mjs tokens page-icon vici-files data engine negctl story guide glide 2>&1 | tee "$RUNNER_TEMP/node.log"; exit "${PIPESTATUS[0]}"
         env:
           DL_CHALLENGE: challenge
       # Each failed check as an annotation, so it shows on the run's summary page.

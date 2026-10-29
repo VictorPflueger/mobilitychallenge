@@ -7,6 +7,7 @@
 import { h, svg, prefersReducedMotion } from "../dom.js";
 import { trackDrawing } from "../network.js";
 import { trainStatus } from "../sim.js";
+import { trainPoint } from "../glide.js";
 
 export const HEX = (r) => [0, 1, 2, 3, 4, 5].map((k) => {
   const a = (Math.PI / 3) * k;
@@ -145,14 +146,17 @@ export function createMap(root, { scenario, network, onSelect }) {
   let selected = null;
   const center = (cell) => [rail.col(cell) + 0.5, rail.row(cell) + 0.5];
 
-  /** Draws the trains at fractional step t (between frames when animating). */
+  /**
+   * Draws the trains at fractional step t (between steps while it plays): each where js/glide.js
+   * places it, so that it moves at its own speed and a standing train stays at the centre of its
+   * cell. With reduced motion every train sits at the centre of its cell and jumps from cell to cell.
+   */
   function render(t, force = false) {
     if (!run) return;
     const f = run.frames;
     const n = f.n;
     const step = Math.max(0, Math.min(Math.floor(t), run.steps));
     const frac = reduced ? 0 : Math.min(1, Math.max(0, t - step));
-    const next = Math.min(step + 1, run.steps);
     if (!force && t === lastT) return;
     lastT = t;
     const s = markerPx / 2 / ppu;
@@ -165,12 +169,7 @@ export function createMap(root, { scenario, network, onSelect }) {
         continue;
       }
       onMap += 1;
-      let [x, y] = center(cell);
-      const nextCell = f.pos[next * n + i];
-      if (frac > 0 && nextCell >= 0 && nextCell !== cell) {
-        const [x2, y2] = center(nextCell);
-        if (Math.abs(x2 - x) + Math.abs(y2 - y) <= 1.01) { x += (x2 - x) * frac; y += (y2 - y) * frac; }
-      }
+      const [x, y] = (!reduced && trainPoint(run.paths, rail, i, step + frac)) || center(cell);
       g.style.display = "";
       g.setAttribute("transform", `translate(${x.toFixed(3)} ${y.toFixed(3)}) scale(${s.toFixed(4)})`);
       const st = trainStatus(run, scenario, i, step);

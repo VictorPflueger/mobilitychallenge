@@ -14,6 +14,9 @@
 //             (gridlock, waiting trains, all arrived), the way on to the next run
 //   once      the theme toggle and the speed buttons act once per click (vici.js acts on some
 //             controls by itself), the guide closes with Escape, is remembered and reopens
+//   glide     trains move at their own speed (js/glide.js): an S-Bahn at half a cell per step moves
+//             evenly at every quarter step and in every frame while the run plays; a standing
+//             train stays at the centre of its cell
 //   motion    with reduced motion the trains jump from cell to cell (no animation between steps)
 //   failure   a missing data file ends on the boot screen with the reason; a score the Python
 //             runner did not compute raises a banner and loses its "same score" note
@@ -355,6 +358,78 @@ try {
     await page.click(".story-next");
     check(await page.getAttribute("#tab-score", "aria-selected") === "true", "story: after the optimized run, the next button compares all scores");
     check(!errors.length, `story: no console errors (${errors.join(" | ")})`);
+    await context.close();
+  }
+
+  if (wanted("glide")) {
+    // The estimate run, in which no train ever halts: S-Bahn 17 runs at half a cell per step. On a
+    // straight stretch it must move an eighth of a cell every quarter step, and while the run plays
+    // at ×1 it must move in every frame (drawn from cell to cell it held still every other step).
+    const { context, page, errors } = await open({ url: "?run=estimate" });
+    await ready(page);
+    const sb = await page.evaluate(() => {
+      const at = (i) => { const m = document.querySelector(`.train[data-train="${i}"]`).getAttribute("transform").match(/translate\(([-\d.]+) ([-\d.]+)\)/); return [Number(m[1]), Number(m[2])]; };
+      const lab = window.dispatchLab;
+      const run = lab.runs.get("estimate");
+      const { n, pos } = run.frames;
+      const W = lab.scenario.rail.width;
+      // the first step from which train 17's next six cells lie in one row or one column
+      let from = -1;
+      for (let t = 1; t + 6 <= run.steps && from < 0; t += 1) {
+        const cells = [0, 1, 2, 3, 4, 5, 6].map((k) => pos[(t + k) * n + 17]);
+        if (cells.some((c) => c < 0)) continue;
+        if (cells.every((c) => Math.floor(c / W) === Math.floor(cells[0] / W)) || cells.every((c) => c % W === cells[0] % W)) from = t;
+      }
+      const pts = [];
+      for (let k = 0; k <= 16; k += 1) { lab.seek(from + k / 4); pts.push(at(17)); }
+      return { from, moves: pts.slice(1).map((p, k) => Math.hypot(p[0] - pts[k][0], p[1] - pts[k][1])) };
+    });
+    check(sb.from > 0 && sb.moves.length === 16 && sb.moves.every((d) => Math.abs(d - 0.125) < 0.002), `glide: S-Bahn 17 moves an eighth of a cell every quarter step from step ${sb.from} on (${sb.moves.map((d) => d.toFixed(3)).join(" ")})`);
+    await page.click('.speed button:text-is("×1")');
+    const played = await page.evaluate((from) => new Promise((resolve) => {
+      const at = (i) => { const m = document.querySelector(`.train[data-train="${i}"]`).getAttribute("transform").match(/translate\(([-\d.]+) ([-\d.]+)\)/); return [Number(m[1]), Number(m[2])]; };
+      const lab = window.dispatchLab;
+      lab.seek(from);
+      lab.play();
+      const seen = [];
+      const until = performance.now() + 1200;
+      const tick = () => {
+        seen.push({ t: lab.state.t, p: at(17) });
+        if (performance.now() < until) requestAnimationFrame(tick);
+        else { lab.pause(); resolve(seen); }
+      };
+      requestAnimationFrame(tick);
+    }), sb.from);
+    let advanced = 0;
+    let held = 0;
+    for (let k = 1; k < played.length; k += 1) {
+      if (played[k].t <= played[k - 1].t) continue;
+      advanced += 1;
+      if (played[k].p[0] === played[k - 1].p[0] && played[k].p[1] === played[k - 1].p[1]) held += 1;
+    }
+    check(advanced >= 20 && held === 0, `glide: playing at ×1, S-Bahn 17 moves in every one of ${advanced} frames in which time advances (${held} held still)`);
+    // The optimized run: a train standing for three steps stays at the centre of its cell throughout.
+    const still = await page.evaluate(() => {
+      const at = (i) => { const m = document.querySelector(`.train[data-train="${i}"]`).getAttribute("transform").match(/translate\(([-\d.]+) ([-\d.]+)\)/); return [Number(m[1]), Number(m[2])]; };
+      const lab = window.dispatchLab;
+      lab.setRun("optimized");
+      const run = lab.runs.get("optimized");
+      const { n, pos, state } = run.frames;
+      const W = lab.scenario.rail.width;
+      for (let t = 1; t + 2 <= run.steps; t += 1) {
+        for (let i = 0; i < n; i += 1) {
+          if (![0, 1, 2].every((k) => pos[(t + k) * n + i] >= 0 && state[(t + k) * n + i] === 4)) continue;
+          const c = pos[t * n + i];
+          const centre = [c % W + 0.5, Math.floor(c / W) + 0.5];
+          const pts = [];
+          for (let k = 0; k <= 8; k += 1) { lab.seek(t + k / 4); pts.push(at(i)); }
+          return { train: i, step: t, centre, pts };
+        }
+      }
+      return null;
+    });
+    check(still && still.pts.every((p) => Math.abs(p[0] - still.centre[0]) < 1e-6 && Math.abs(p[1] - still.centre[1]) < 1e-6), `glide: train ${still?.train}, standing from step ${still?.step} for three steps, stays at the centre of its cell (${still?.centre.join(", ")}) throughout`);
+    check(!errors.length, `glide: no console errors (${errors.join(" | ")})`);
     await context.close();
   }
 

@@ -46,7 +46,7 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 - Station names sit beside their platforms where they cover no other name, no platform and as few tracks as possible. Numbered stops lose their name before anything overlaps; the stops' names appear from about 7 px per cell.
 - Two views: the whole network, and the busy middle around the Hauptbahnhof, where the numbers show.
 - The **legend** is a strip under the map, always visible, with short names; the Method tab explains every symbol in full. The map's drawing area ends above it, so it never covers a station or a train.
-- Playback interpolates between steps unless the reader prefers reduced motion; then trains jump from cell to cell.
+- Playback moves each train at its own speed between steps (`js/glide.js`): an S-Bahn glides through a cell in two steps, a train setting off or braking speeds up or slows down, and a standing train stays at the centre of its cell. A train the engine moves is drawn moving, except while it inches forward inside one cell between two halts. A reader who prefers reduced motion sees every train at the centre of its cell, jumping from cell to cell.
 
 ## 5. The panel
 

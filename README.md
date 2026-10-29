@@ -37,7 +37,7 @@ Where the points go, as the Score tab breaks them down (checked term by term aga
 | Late at the destination (1 per step) | — | 12 → −3,036.0 | 2 → −360.0 |
 | **Score** | **−74,022.6** | **−32,488.8** | **−1,014.0** |
 
-The page plays each run back on the network map (play, step, seek, three speeds), with the score, the trains that arrived and the stops served at every step. **The Story tab**, open first, tells each run in a few moments worth watching (the first collision, the gridlock, the longest wait, the first stop served, the last arrival …), each of which jumps to its step and rings its train on the map, and says why the run scores what it scores. A line under the map's title says what is going on at the step on screen: a gridlock, trains held back, trains waiting at their entry, all trains arrived. The other tabs hold the score's breakdown and its course, the timetable each train actually ran, a log of events that jumps to its step, and the method. The run and step on screen live in the address, so a moment can be shared as a link, e.g. `?run=baseline&step=600`.
+The page plays each run back on the network map (play, step, seek, three speeds; every train moves at its own speed, and a standing train stays at the centre of its cell), with the score, the trains that arrived and the stops served at every step. **The Story tab**, open first, tells each run in a few moments worth watching (the first collision, the gridlock, the longest wait, the first stop served, the last arrival …), each of which jumps to its step and rings its train on the map, and says why the run scores what it scores. A line under the map's title says what is going on at the step on screen: a gridlock, trains held back, trains waiting at their entry, all trains arrived. The other tabs hold the score's breakdown and its course, the timetable each train actually ran, a log of events that jumps to its step, and the method. The run and step on screen live in the address, so a moment can be shared as a link, e.g. `?run=baseline&step=600`.
 
 ## How it works
 
@@ -95,6 +95,7 @@ git worktree add ../mobilitychallenge-pages gh-pages
 - **Negative controls.** `tests/engine-negctl.mjs` plants small errors (braking 0.4 instead of 0.5, the higher index winning a conflict, a crash penalty of 935, one action of a plan changed, one train of the estimate entering a step early, a term booked under the wrong heading, …); the checks must catch every one.
 - **The plans.** `tools/check_estimate.py` runs the estimate's planner through the challenge's runner, checks after every step that each train is exactly where its booked route says, and compares its actions with `data/estimate_actions.json`. `tools/check_plan.py` does the same for `PlannerController` and `data/planner_actions.json`; it needs the planner's two files in the challenge checkout's `src/controller/`, which are not part of this repository.
 - **The words.** `tests/story.mjs` holds every figure and moment of the Story tab and the map's situation line against facts worked out from the Python traces alone (arrivals, collisions, the gridlock's first step, stops served and passed, the longest wait); `tests/guide.mjs` holds every figure in the guide against the scenario file, the penalties as the challenge's own code sets them, the floor as `tools/score_floor.py` computes it on flatland's rail, and the same traces (when each penalty is booked, trains turning round at the Hauptbahnhof).
+- **The motion.** `tests/glide.mjs` holds the map's drawing against the Python traces of all three runs: no train Python moves is drawn standing (except while it inches forward inside one cell between two halts), a standing train stays at the centre of its cell, the S-Bahns move exactly half a cell per step and full-speed trains a cell per step through cell centres; the old drawing, which held a train still in every step it stayed in its cell, even while it moved more slowly than a cell per step, fails these checks.
 - **The page.** Chromium suites (Playwright) for the main flows, the guide and the Story tab, every viewport from 1920 × 1080 to 320 × 640 (the guide's seven chapters at each, its drawings' words 10 px or larger), contrast in both themes, Vici's files and its hexagon rule (nothing round).
 
 ## Files
@@ -102,7 +103,8 @@ git worktree add ../mobilitychallenge-pages gh-pages
 ```
 index.html, favicon.svg, .nojekyll   the page (strict Content Security Policy: everything from this site)
 css/            style.css (shell), components.css, map.css, panel.css, modals.css, guide.css
-js/             main.js (start, playback), sim.js, network.js (names, track drawing), runs.js,
+js/             main.js (start, playback), sim.js, glide.js (where the map draws a train between steps),
+                network.js (names, track drawing), runs.js,
                 story.js (a run's facts, moments, situation), guide-content.js (the guide's text),
                 floor.js (the best score any dispatcher can reach), format.js
 js/engine/      env.js, rail.js, motion.js, py.js

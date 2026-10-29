@@ -1,9 +1,11 @@
 // Runs a controller through the engine and keeps what the interface shows: every train's place and
-// state at every step (the frames), each reward component (the ledger), the timetable as it was
-// actually run, and a readable log of events. The engine computes the score; this module only
-// watches (it reads the environment after each step and changes nothing).
+// state at every step (the frames), where the map draws it between steps (the paths, js/glide.js),
+// each reward component (the ledger), the timetable as it was actually run, and a readable log of
+// events. The engine computes the score; this module only watches (it reads the environment after
+// each step and changes nothing).
 
 import { RailEnv, STATE, isOffMap, runEpisode } from "./engine/env.js";
+import { trainPaths } from "./glide.js";
 
 /** Reward components, in the order the score breakdown lists them. */
 export const KINDS = [
@@ -146,6 +148,7 @@ export function simulate(scenario, controller) {
     steps,
     score: frames.total[steps],
     frames,
+    paths: trainPaths(frames, steps, agents), // where the map draws each train (js/glide.js)
     ledger: env.ledger,
     timetable,
     events,

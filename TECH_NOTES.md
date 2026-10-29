@@ -70,6 +70,8 @@ The best score any dispatcher can reach on the map, bounded from below. For each
 
 A train counts as **late** from the step it passes the latest arrival of the next stop it has not reached (or of its destination); **blocked** when the motion check refused its move; **stuck** when it has stood still for 40 steps and is 40 steps past its departure time.
 
+**How the map moves trains between steps** (`js/glide.js`, computed once per run as `run.paths`). Flatland keeps a train in one cell until its speed counter has covered the whole cell: an S-Bahn (0.5) takes two steps per cell, and a train setting off covers 0.3 and then 0.6 of a cell before it leaves its first one. The first release moved a hexagon only in the step its train changed cells, so these trains glided for one step and froze for the next although they never stopped: 607 such frozen steps in the estimate run (only the three S-Bahns, in a run where no train ever halts), 821 in the optimized run, 192 in the baseline. Now a train rests at the centre of its cell in every step it stands, at the centre of every cell it enters at a steady speed (the speed of the step before) and does not halt in, and where it enters and leaves the map; between two of these rest points it moves in proportion to the distance its speed counter covers in each step, never more than a cell in a step. So a train glides at its own speed, slows into a stop and speeds up out of one, runs through cell centres at full speed exactly as before, and stands still, at its cell's centre, whenever the engine has it standing. Drawing the speed counter's distance itself was rejected: a train waiting behind another stands near the end of its cell, so the two hexagons would sit on top of each other. One real movement stays hidden: the optimized plan sometimes inches a waiting train forward inside its cell (halt, 0.3 of a cell, halt; 52 steps), which mostly lets it leave the cell with its first move once it may go; such a train is drawn standing. With reduced motion every train sits at the centre of its cell and jumps from cell to cell, as before. `tests/glide.mjs` checks all of this on the three runs against the Python traces.
+
 ## 6. Build decisions
 
 - **Replay, not a port of the planners.** `PlannerController` is several hundred lines of search over a time-expanded network and takes two minutes in Python; the page would wait or need a worker and a port that is hard to verify. Replaying its actions through the verified engine shows the same run and the same score, and `check_plan.py` ties the actions to the planner. The estimate's planner is small, but it is replayed the same way, so that both plans are checked by the same means (`check_estimate.py`).
@@ -81,7 +83,7 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 
 ## 7. Verification log
 
-28 Oct 2026, first release; 29 Oct 2026, the guide, the Story tab and the new estimate:
+28 Oct 2026, first release; 29 Oct 2026, the guide, the Story tab and the new estimate, then trains drawn at their own speed:
 
 | Check | Result |
 |---|---|
@@ -92,4 +94,5 @@ A train counts as **late** from the step it passes the latest arrival of the nex
 | `tests/engine-negctl.mjs` | 14 planted errors, all caught; the unchanged engine passes |
 | `tests/data.mjs` | the site's map is the challenge's byte for byte; both plans, the scores and the traces recorded on it |
 | `tests/story.mjs`, `tests/guide.mjs` | every figure and moment of the Story tab and the guide agrees with the Python traces, the scenario and the rules; the floor (−944) is the same in the browser and on flatland's rail |
-| Browser suites | smoke (main flows, guide, story), layout (9 viewports × 5 states and the guide's 7 chapters), hexagon (both themes, the guide included), tokens (both themes), page icon, Vici's files: all pass |
+| `tests/glide.mjs` | the map's motion on all three runs against the Python traces: no train Python moves is drawn standing (2,547, 4,710 and 5,028 moving steps; the 21 and 52 steps of inching inside a cell in the baseline and the optimized run are drawn standing), every standing train still at its cell's centre, the S-Bahns exactly half a cell per step in the estimate run, full-speed trains a cell per step through cell centres, never backwards, never more than a cell in a step; the old drawing and a drawing at the speed counter's distance both fail |
+| Browser suites | smoke (main flows, guide, story, an S-Bahn moving in every frame at ×1), layout (9 viewports × 5 states and the guide's 7 chapters), hexagon (both themes, the guide included), tokens (both themes), page icon, Vici's files: all pass |
