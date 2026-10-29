@@ -67,8 +67,12 @@ export function loadScenario(data) {
   };
 }
 
+/** The scenario loader's speed changes per step: a train speeds up by 0.3, brakes by 0.5. */
+export const ACCELERATION = 0.3;
+export const BRAKING = -0.5;
+
 export class RailEnv {
-  constructor(scenario, { accelerationDelta = 0.3, brakingDelta = -0.5 } = {}) {
+  constructor(scenario, { accelerationDelta = ACCELERATION, brakingDelta = BRAKING } = {}) {
     this.scenario = scenario;
     this.rail = scenario.rail;
     this.levelFree = scenario.levelFree;

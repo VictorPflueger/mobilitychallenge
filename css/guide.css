@@ -106,6 +106,10 @@
 .guide-scenes strong { display: block; color: var(--vc-text); }
 .guide-scenes p { margin: 4px 0 0; color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); line-height: 1.4; }
 
+/* The guide's tables scroll with their chapter: no sticky header (Vici's tables keep theirs in place
+   of a scrolling panel, which here would cover the rows). */
+.guide-chapter .vc-table thead th { position: static; }
+
 /* The score */
 .guide-penalties { width: 100%; max-width: 820px; margin: 0 0 20px; }
 .guide-penalties th[scope="row"] { white-space: nowrap; color: var(--vc-text); }
@@ -122,6 +126,7 @@
 .guide-result-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .guide-result-head strong { font-family: var(--vc-font-display); font-size: 1.15rem; color: var(--vc-text); }
 .guide-result-score { margin-left: auto; font-family: var(--vc-font-display); font-size: 1.3rem; font-weight: var(--vc-weight-semibold); font-variant-numeric: tabular-nums; color: var(--vc-text); }
+.guide-result-source { margin: 2px 0 0; color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); }
 .guide-bar { display: block; height: 8px; margin: 10px 0 12px; background: var(--vc-bg-subtle); }
 .guide-bar-fill { display: block; height: 100%; width: calc(var(--share, 0) * 100%); background: var(--run-color, var(--vc-text-muted)); }
 .guide-result[data-run="best"] .guide-bar-fill { background: repeating-linear-gradient(90deg, var(--vc-text-muted) 0 6px, transparent 6px 10px) top / 100% 2px no-repeat, repeating-linear-gradient(90deg, var(--vc-text-muted) 0 6px, transparent 6px 10px) bottom / 100% 2px no-repeat; border-inline: 2px solid var(--vc-text-muted); }

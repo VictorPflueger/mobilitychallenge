@@ -328,7 +328,8 @@ def main():
             open(ref_path, 'w').write(json.dumps(ref, indent=1))
             print('wrote data/reference.json')
     # tests/fixtures/rules.json: the penalties as the challenge's own code sets them for this map
-    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), and the
+    # (scaled_penalties.get_scaled_penalties, the "balanced" profile the loader picks), the speed
+    # changes per step the loader sets (acceleration_delta, braking_delta), and the
     # floor no dispatcher can beat (tools/score_floor.py, on flatland's own rail), which
     # tests/guide.mjs compares with the figures the guide states. The floor's timing assumptions
     # must hold in every recorded run.
@@ -348,6 +349,8 @@ def main():
     rules = {'map': os.path.basename(MAP), 'max_episode_steps': max_steps,
              'balanced': balanced,
              'target_late_per_step': 1,
+             'acceleration_delta': env.acceleration_delta,
+             'braking_delta': env.braking_delta,
              'floor': {'per_train': floor, 'total': sum(floor)}}
     rules_path = os.path.join(out_dir, 'rules.json')
     if args.check:

@@ -97,7 +97,7 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
         case "conflicts":
           return h("ul", { class: "guide-scenes" }, conflictScenes().map((s) =>
             h("li", { dataset: { scene: s.id } }, s.drawing, h("strong", {}, s.title),
-              h("p", {}, s.text, s.id === "taken" ? ` It costs ${Math.round(bk.crash)} × the train's speed: ${Math.round(bk.crash)} points at full speed.` : ""))));
+              h("p", {}, s.text, s.id === "taken" ? bk.taken : ""))));
         case "penalties":
           return h("table", { class: "vc-table vc-table--compact guide-penalties" },
             h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Penalty"), h("th", { scope: "col" }, "When"), h("th", { scope: "col", class: "num" }, "Points"))),
@@ -116,8 +116,9 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
                 h("strong", {}, c.name),
                 c.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null,
                 h("span", { class: "guide-result-score" }, c.score)),
+              c.source ? h("p", { class: "guide-result-source" }, c.source) : null,
               bar,
-              h("dl", {}, h("dt", {}, "What it does"), h("dd", {}, c.does), h("dt", {}, "What happens"), h("dd", {}, c.happens)),
+              h("dl", {}, h("dt", {}, c.labels?.[0] || "What it does"), h("dd", {}, c.does), h("dt", {}, c.labels?.[1] || "What happens"), h("dd", {}, c.happens)),
               c.watch ? h("button", { class: "vc-button vc-button--secondary guide-watch", type: "button", dataset: { run: c.run }, on: { click: () => modal.close(c.run) } }, icon("play", 16), c.watch) : null);
           }));
         case "howto":

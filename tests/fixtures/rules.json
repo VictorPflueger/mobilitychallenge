@@ -10,6 +10,8 @@
   "intermediate_late_arrival_penalty_factor": 0.5
  },
  "target_late_per_step": 1,
+ "acceleration_delta": 0.3,
+ "braking_delta": -0.5,
  "floor": {
   "per_train": [
    0.0,

@@ -3,7 +3,7 @@
 // the runs the engine simulated; nothing is typed in. js/ui/guide.js draws it; tests/guide.mjs
 // checks the figures against the scenario file and the Python runner's results.
 
-import { balancedPenalties } from "./engine/env.js";
+import { ACCELERATION, BRAKING, balancedPenalties } from "./engine/env.js";
 import { runFacts } from "./story.js";
 import { scoreFloor } from "./floor.js";
 import { LEADERBOARD } from "./runs.js";
@@ -20,6 +20,9 @@ export function guideFacts({ scenario, network, runs }) {
   });
   kinds.sort((a, b) => b.count - a.count);
   const named = network.stations.filter((s) => !s.name.startsWith("Stop "));
+  // the speeds the scenario gives each kind, before Flatland rounds them
+  const given = {};
+  network.trains.forEach((t, i) => { given[t.kind] = agents[i].lineSpeed; });
   // stations without a name keep their number in the scenario ("Stop 17")
   const numbers = network.stations.filter((s) => s.name.startsWith("Stop ")).map((s) => s.id).sort((x, y) => x - y);
   // the line ends besides the Hauptbahnhof and the airport, for the network's caption
@@ -64,7 +67,11 @@ export function guideFacts({ scenario, network, runs }) {
     stations: network.stations.length, named: named.length, numbered: numbers.length, numberRange: [numbers[0], numbers[numbers.length - 1]], towns,
     stops, width: scenario.rail.width, height: scenario.rail.height, levelFree: scenario.levelFree.size,
     steps: scenario.maxSteps, penalty, example, runs: facts, leaderboard: LEADERBOARD, tight,
-    floor, trainNames: network.trains.map((t) => t.name), trainKinds: network.trains.map((t) => t.kind)
+    floor, trainNames: network.trains.map((t) => t.name), trainKinds: network.trains.map((t) => t.kind),
+    givenSpeed: given, accel: ACCELERATION, brake: -BRAKING,
+    sbahnSpeed: (kinds.find((k) => k.kind === "S-Bahn") || { speed: 0.5 }).speed,
+    // a train whose name has one place: a round trip from there to the Hauptbahnhof and back
+    roundTrip: network.trains.map((t, i) => ({ i, name: t.name, places: t.name.split(" ").slice(1, -1) })).find((t) => t.places.length === 1 && network.trains[t.i].kind === "RB")
   };
 }
 
@@ -105,7 +112,7 @@ export function chapters(F) {
             { icon: "flag", title: "Stop where the timetable says", text: `Each train has a timetable: the stations it must halt at on its way, and a time window at each. The ${F.trains} trains have ${F.stops} stops to serve between them.` },
             { icon: "clock", title: "Arrive on time", text: "Every train should reach its destination by the time its timetable gives." },
             { icon: "warning", title: "Never get in each other's way", text: "Two trains can't share a piece of track. A train held back by another costs points, and trains that block each other can jam the whole network." },
-            { icon: "chart", title: "Lose as few points as possible", text: `Every mistake costs penalty points, and the score is minus their sum: the closer to zero, the better. The best score on the challenge's leaderboard is ${count(F.leaderboard)}.` }
+            { icon: "chart", title: "Lose as few points as possible", text: `Every mistake costs penalty points, and the score is minus their sum: the closer to zero, the better. The best score on the challenge's leaderboard (October 2026) is ${count(F.leaderboard)}.` }
           ]
         },
         { type: "note", tone: "note", title: "A simulation", text: "The challenge runs on Flatland, an open-source railway simulator. Neu-Frankfurt is a fictional network; its stations are named after its lines." }
@@ -122,7 +129,7 @@ export function chapters(F) {
           type: "points", items: [
             { title: "Tracks", text: "Trains follow the track. They can't turn around on the open line, only at the end of a track: the Hauptbahnhof is a terminus, so trains that call there reverse and leave the way they came in." },
             { title: "Switches", text: "At a switch the track splits, and the dispatcher decides which way a train goes." },
-            { title: "Stations", text: `A station is a group of platforms. Neu-Frankfurt has ${F.stations}: the Hauptbahnhof, ${F.named - 1} more named stations and ${F.numbered} smaller ones without a name, which the map labels by their number in the scenario (Stop ${F.numberRange[0]} to Stop ${F.numberRange[1]}).` },
+            { title: "Stations", text: `A station is a group of platforms. Neu-Frankfurt has ${F.stations}: the Hauptbahnhof, ${F.named - 1} more named stations and ${F.numbered} smaller ones without a name, which the map labels by their number in the scenario, between Stop ${F.numberRange[0]} and Stop ${F.numberRange[1]}.` },
             { title: "Level-free crossings", text: `Where two tracks cross on a bridge (${F.levelFree} times in Neu-Frankfurt), trains pass each other freely.` },
             { title: "Buffer stops", text: "Trains enter the map at their first station, at the end of a line, and leave it as soon as they reach their destination." }
           ]
@@ -142,7 +149,8 @@ export function chapters(F) {
             { title: "Time runs in steps", text: `Everything happens in steps, like the ticks of a clock. The episode ends when every train has arrived, or after ${count(F.steps)} steps.` },
             { title: "A stop means stopping", text: `At each stop the train must come to a halt at one of the station's platforms. Driving through doesn't count: the stop is lost (${amount(P.notServed)} points).` },
             { title: "Two times per stop", text: `Arrive by: the latest step to reach the station; every step later costs ${amount(P.lateArrival)} points, ${count(1)} at the destination. Leave from: the earliest step to set off again; every step earlier costs ${amount(P.earlyDeparture)}.` },
-            { title: "Train names", text: `A name gives the train's kind, its line and a number: ${F.example.name} is a regional train from ${ex[0].station} to ${ex[ex.length - 1].station}. Hbf stands for Hauptbahnhof, FF for Flughafen (the airport), Of for Offenbach.` }
+            { title: "Train names", text: `A name gives the train's kind, where it runs and a number: ${F.example.name} is a regional train from ${ex[0].station} to ${ex[ex.length - 1].station}. A name with one place, like ${F.roundTrip.name}, is a round trip from there to the Hauptbahnhof and back. Hbf stands for Hauptbahnhof, FF for Flughafen (the airport), Of for Offenbach.` },
+            { title: "Speeds", text: `The scenario gives RBs ${F.givenSpeed.RB} of a cell per step and S-Bahns ${F.givenSpeed["S-Bahn"]}. Flatland rounds every speed so that a cell takes a whole number of steps: RBs run as fast as ICEs, one cell per step, and S-Bahns take two steps per cell.` }
           ]
         }
       ]
@@ -154,7 +162,12 @@ export function chapters(F) {
       lead: "At every step the dispatcher gives each train one of five commands. Then the simulator moves all trains at the same time, each by at most one cell, wherever the cell ahead is free.",
       blocks: [
         { type: "commands" },
-        { type: "conflicts", crash: P.crash },
+        {
+          type: "points", items: [
+            { title: "Speeding up and braking", text: `Trains change speed gradually: moving off, a train gains ${amount(F.accel)} of a cell per step until it reaches its top speed, and braking takes ${amount(F.brake)} off per step. A train halts in the cell where its speed reaches zero, so the dispatcher has to brake in time to stop at a platform.` }
+          ]
+        },
+        { type: "conflicts", taken: ` It costs ${amount(P.crash)} × the train's speed (${amount(P.crash)} points for an RB or ICE at full speed, ${amount(P.crash * F.sbahnSpeed)} for an S-Bahn), once each time a moving train is stopped this way; standing, it costs nothing more.` },
         { type: "note", tone: "tip", title: "What the dispatcher sees", text: "The challenge offers each train a view of the tracks ahead, or a view of the whole network. A dispatcher can also plan ahead: it knows every timetable from the start." }
       ]
     },
@@ -166,7 +179,7 @@ export function chapters(F) {
       blocks: [
         {
           type: "penalties", rows: [
-            { kind: "collision", tone: "danger", name: "Collision", cost: `${amount(P.crash)} × speed`, text: "A moving train is held back by another one. Speed: the share of a cell it moves per step, 1 at full speed." },
+            { kind: "collision", tone: "danger", name: "Collision", cost: `${amount(P.crash)} × speed`, text: "A moving train is held back by another one. Speed: the share of a cell it was moving per step (1 for an RB or ICE at full speed, ½ for an S-Bahn)." },
             { kind: "stop", tone: "danger", name: "Stop not served", cost: amount(P.notServed), text: "The train never reached the station, or drove through without halting." },
             { kind: "not_arrived", tone: "danger", name: "Not arrived by the end", cost: "its delay", text: "Counted at the end: how late it would arrive from where it stands, by the shortest way at full speed." },
             { kind: "cancelled", tone: "danger", name: "Never set off", cost: `${amount(P.cancellationFactor)} × (trip + ${amount(P.cancellationBuffer)})`, text: "The train never entered the network. Trip: the steps its shortest journey takes." },
@@ -191,31 +204,32 @@ export function chapters(F) {
     {
       id: "results",
       nav: "Four results",
-      title: "From gridlock to every stop on time",
+      title: "From gridlock to every stop served",
       lead: "Dispatch Lab runs three dispatchers on the same scenario and puts them next to the leaderboard's best. Each bar shows the points lost, on the baseline's scale: the shorter, the better.",
       blocks: [
         {
           type: "results", cards: [
             {
-              run: "baseline", name: "Baseline", score: score(b.score),
+              run: "baseline", name: "Baseline", score: score(b.score), source: "Simulated in your browser",
               does: "The challenge's starting point. Every train takes the shortest way to its destination and never waits: not for other trains, and not at its stations.",
               happens: `${count(b.collisions)} collisions. From step ${count(b.gridlockFrom)} on, ${plural(b.stuck, "train")} block each other and nothing moves again: ${count(b.arrived)} of ${count(b.n)} trains arrive, and ${b.served ? `${count(b.served)} of ${count(b.stops)} stops are` : "not a single stop is"} served.`,
               watch: "Watch the gridlock"
             },
             {
-              run: "best", name: "Current best", score: count(F.leaderboard),
-              does: "The best entry on the challenge's leaderboard.",
-              happens: `Its code is not public, so it can't be replayed here. Its score fits a dispatcher that gets the trains through but serves few stops or none: losing all ${count(F.stops)} stops alone costs ${amount(lostStops)} points. The estimate below is such a dispatcher: it guesses the strategy, not the exact score.`
+              run: "best", name: "Current best", score: count(F.leaderboard), source: "Quoted from the leaderboard, not simulated",
+              labels: ["What it is", "What its score tells"],
+              does: "The best entry on the challenge's leaderboard (October 2026). Its code is not public, so it can't be replayed here.",
+              happens: `Only the score is known. It fits a dispatcher that gets the trains through but serves few stops or none: losing all ${count(F.stops)} stops alone costs ${amount(lostStops)} points. The estimate below is such a dispatcher: it guesses the strategy, not the exact score.`
             },
             {
-              run: "estimate", name: "Estimate", score: score(e.score), ai: true,
-              does: "Claude's guess at the kind of strategy behind the best score. A planner books each train's whole route before letting it in, so trains never meet. The route leads through the stations, but no train halts there.",
+              run: "estimate", name: "Estimate", score: score(e.score), ai: true, source: "Planned in Python beforehand, replayed here",
+              does: "A guess by Claude, Anthropic's AI model, at the kind of strategy behind the best score. A planner books each train's whole route before letting it in, so trains never meet. The route leads through the stations, but no train halts there.",
               happens: `No collision, no gridlock: all ${count(e.n)} trains arrive. All ${count(e.stops)} stops are lost (${amount(e.passed * P.notServed)} points), and trains wait up to ${count(e.longestWait.wait)} steps at their entry for a free route (${plural(e.lateSteps, "step")} late in all).`,
               watch: "Watch the estimate"
             },
             {
-              run: "optimized", name: "Optimized", score: score(o.score),
-              does: "Our planner (PlannerController) books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
+              run: "optimized", name: "Optimized", score: score(o.score), source: "Planned in Python beforehand, replayed here",
+              does: "This page's own planner, PlannerController, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
               happens: `All ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and all ${count(o.served)} stops are served. ${sbahnNames.length === 2 ? `${amount(sbahnPoints)} of the ${amount(o.score)} points left come from the two S-Bahns ${sbahnNames[0]} and ${sbahnNames[1]}: even at full speed their trip takes longer than their timetable allows. ${floorText}` : floorText}`.trim(),
               watch: "Watch the optimized run"
             }
@@ -227,12 +241,12 @@ export function chapters(F) {
       id: "page",
       nav: "Using this page",
       title: "How to read this page",
-      lead: "Everything on the page is computed in your browser: it simulates every step of the three runs and gets the same scores as the challenge's Python runner, to the last digit.",
+      lead: "Your browser simulates every step of the three runs with the challenge's rules and gets the same scores as the challenge's own Python runner, to the last digit. The baseline decides as it goes; the two planners worked out their commands in Python beforehand, and the page replays them.",
       blocks: [
         {
           type: "howto", items: [
             { area: "runs", title: "Runs and playback", text: "Switch between the three runs at the top. Play, step through or drag the timeline; the speed buttons go up to 16 times." },
-            { area: "map", title: "The map", text: "Each train is a hexagon: filled while it runs, hollow while it stands. Its colour says on time, behind its timetable, blocked (a train is in its way right now) or stuck (standing 40 steps or more past its time); the strip under the map is the legend. The line under the run's name says what is going on. The honeycomb behind the map is only the page's background: the railway's cells are square." },
+            { area: "map", title: "The map", text: "Each train is a hexagon. Its colour and outline show its state, as the legend under the map names them: on time, behind its timetable, standing, blocked (a dashed ring: a train is in its way right now) or stuck (a dashed ring: standing 40 steps or more past its time). The line under the run's name says what is going on. The honeycomb behind the map is only the page's background: the railway's cells are square." },
             { area: "kpis", title: "The tiles", text: "The score so far, the run's final score against the leaderboard's best, the trains that have arrived and the stops served." },
             { area: "panel", title: "The panel", text: "Story: what happens in the run and when. Score: where the points go. Trains: each train's timetable as it ran. Events: everything, in order. Method: how the page computes it." }
           ]

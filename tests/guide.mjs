@@ -58,7 +58,7 @@ says(`${named.length - 1} more named stations and ${stationIds.length - named.le
 const numbered = network.stations.filter((st) => st.name.startsWith("Stop "));
 check(numbered.every((st) => st.name === `Stop ${st.id}` && data.stations.some((x) => x.id === st.id)), "every station without a name is labelled by its number in the scenario file");
 const nums = numbered.map((st) => st.id).sort((x, y) => x - y);
-says(`(Stop ${nums[0]} to Stop ${nums[nums.length - 1]})`, "the numbered stations' range");
+says(`between Stop ${nums[0]} and Stop ${nums[nums.length - 1]}`, "the numbered stations' range");
 const stops = data["flatland line"].agent_positions.reduce((s, p) => s + p.length - 1, 0);
 check(F.stops === stops, `stops: ${F.stops} (file ${stops})`);
 says(`${stops} stops to serve`, "the number of stops");
@@ -102,6 +102,37 @@ says(`${rules.target_late_per_step} per step`, "late at the destination");
 says(`a lost stop, for example, costs ${fmt(P.intermediate_not_served_penalty / rules.max_episode_steps, 1)} × ${fmt(rules.max_episode_steps)} = ${fmt(P.intermediate_not_served_penalty, 1)} points`, "the penalties' scale");
 says(`every step later costs ${P.intermediate_late_arrival_penalty_factor} points, ${rules.target_late_per_step} at the destination`, "lateness beside the timetable");
 says(`every step earlier costs ${P.intermediate_early_departure_penalty_factor}`, "early departure beside the timetable");
+
+// Speeds as the scenario gives them, and how trains change speed (the loader's settings).
+const givenOf = (kind) => data["flatland line"].agent_speeds[data.schedules.findIndex((x) => classes.get(x.trainClassId).name === kind)];
+says(`The scenario gives RBs ${givenOf("RB")} of a cell per step and S-Bahns ${givenOf("S-Bahn")}`, "the speeds before rounding");
+check(F.accel === rules.acceleration_delta && F.brake === -rules.braking_delta, `speeding up ${F.accel} and braking ${F.brake} per step, as the loader sets them (${rules.acceleration_delta}, ${rules.braking_delta})`);
+says(`a train gains ${rules.acceleration_delta} of a cell per step`, "speeding up");
+says(`braking takes ${-rules.braking_delta} off per step`, "braking");
+// A collision: booked once, when a moving train is brought to a halt without being told to stop.
+for (const name of ["baseline", "estimate", "optimized"]) {
+  const fx = readJson(`tests/fixtures/trace_${name}.json`);
+  const rows = [fx.initial, ...fx.trace];
+  const booked = new Set(fx.terms.filter((x) => x[2] === "collision").map((x) => `${x[0]}:${x[1]}`));
+  const halted = new Set();
+  for (let t = 1; t < rows.length; t += 1) {
+    for (let i = 0; i < rows[t].state.length; i += 1) if (rows[t - 1].state[i] === 3 && rows[t].state[i] === 4 && fx.actions[t - 1][i] !== 4) halted.add(`${t}:${i}`);
+  }
+  check(booked.size === halted.size && [...booked].every((k) => halted.has(k)), `${name}: each of its ${booked.size} collisions is a moving train halted without a stop command, once`);
+}
+says(`It costs ${fmt(P.crash_penalty_factor)} × the train's speed (${fmt(P.crash_penalty_factor)} points for an RB or ICE at full speed, ${fmt(P.crash_penalty_factor * kinds["S-Bahn"].speed)} for an S-Bahn), once each time a moving train is stopped this way`, "a collision's cost");
+// Names: two places, from one to the other; one place, a round trip to the Hauptbahnhof and back.
+const places = (x) => x.name.split("_").slice(1, -1);
+const stationsOf = (x) => x.stops.map((st) => st.stationId);
+// the short forms the guide explains, and the stations the other places name (the scenario's names)
+const placeIds = { Hbf: [1], FF: [2, 3], Of: [8] };
+for (const st of named) placeIds[st.name.split(" ")[0]] = placeIds[st.name.split(" ")[0]] || [st.id];
+const oneWay = data.schedules.filter((x) => places(x).length >= 2);
+const round = data.schedules.filter((x) => places(x).length === 1);
+check(round.every((x) => stationsOf(x)[0] === stationsOf(x).slice(-1)[0] && stationsOf(x).includes(1) && placeIds[places(x)[0]].includes(stationsOf(x)[0])), `every train named after one place is a round trip from there through the Hauptbahnhof (${round.map((x) => x.name).join(", ")})`);
+check(oneWay.every((x) => placeIds[places(x)[0]]?.includes(stationsOf(x)[0]) && placeIds[places(x).slice(-1)[0]]?.includes(stationsOf(x).slice(-1)[0])), `every train named after several places runs from the first to the last (${oneWay.length} trains)`);
+check(round.some((x) => x.name.replace(/_/g, " ") === F.roundTrip.name), `the guide's example of a one-place name, ${F.roundTrip.name}, is one of them`);
+says(`A name with one place, like ${F.roundTrip.name}, is a round trip from there to the Hauptbahnhof and back`, "one-place names");
 
 // The floor: the page's own computation (js/floor.js) against flatland's rail (tools/score_floor.py).
 check(Math.abs(F.floor.total - rules.floor.total) < 1e-9 && F.floor.perTrain.every((v, i) => Math.abs(v - rules.floor.per_train[i]) < 1e-9),
