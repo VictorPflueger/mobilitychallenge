@@ -1,8 +1,9 @@
 // The guide's content: what the challenge is, how it works and what each run does, for a reader who
 // has never heard of it, told on the map on screen (Neu-Frankfurt or Köln). Every figure in it is
 // computed here from the scenario, the reward rules and the runs the engine simulated; nothing is
-// typed in. Where the two maps differ in kind, not only in figures (Neu-Frankfurt's terminus, its
-// airport S-Bahns and its leaderboard figure; Köln's hub and its S-Bahn loops), the words do too.
+// typed in. Where the two maps differ in kind, not only in figures (Neu-Frankfurt's terminus and its
+// airport S-Bahns; Köln's hub and its S-Bahn loops), the words do too. The leaderboard's figure is
+// the brief's (js/maps.js): both guides quote it, and neither says which map it was scored on.
 // js/ui/guide.js draws it; tests/guide.mjs checks the figures against each map's scenario file and
 // the Python runner's results.
 
@@ -93,13 +94,11 @@ export function guideFacts({ map, runList, scenario, network, runs, floor }) {
     facts[id] = { ...f, score: run.score, worst, perTrain, neverLeft, atTarget };
   }
 
-  // Neu-Frankfurt's S-Bahns' trip in the estimate run: at full speed through all their stations,
-  // without halting, longer than their timetable allows.
-  const estimate = runs.get("estimate");
-  const tight = !estimate ? [] : network.trains.map((t, i) => i).filter((i) => network.trains[i].kind === "S-Bahn").filter((i) => {
-    const tt = estimate.timetable[i];
-    return tt.entered !== null && tt.doneAt !== null && tt.doneAt - tt.entered > agents[i].latestArrival - agents[i].earliestDeparture;
-  });
+  // Neu-Frankfurt's S-Bahns that are too slow for their own timetables: even on empty track, at full
+  // speed and without halting, their trip takes longer than the timetable allows (the floor,
+  // js/floor.js, puts points on them whatever the dispatcher does).
+  const reasons = floorReasons(scenario, floor);
+  const tight = reasons.slow.trains.filter((i) => network.trains[i].kind === "S-Bahn");
 
   return {
     map, runList,
@@ -109,7 +108,7 @@ export function guideFacts({ map, runList, scenario, network, runs, floor }) {
     lines: lines.length, hub: hubId === undefined ? null : { id: hubId, name: network.stationName(hubId), lines: linesAt.get(hubId) },
     stops, width: scenario.rail.width, height: scenario.rail.height, levelFree: scenario.levelFree.size,
     steps: scenario.maxSteps, penalty, example, runs: facts, leaderboard: map.leaderboard, tight,
-    floor, reasons: floorReasons(scenario, floor), trainNames: network.trains.map((t) => t.name), trainKinds: network.trains.map((t) => t.kind),
+    floor, reasons, trainNames: network.trains.map((t) => t.name), trainKinds: network.trains.map((t) => t.kind),
     givenSpeed: given, accel: ACCELERATION, brake: -BRAKING,
     // a train whose name has one place: on Neu-Frankfurt, a round trip from there to the Hauptbahnhof and back
     roundTrip: network.trains.map((t, i) => ({ i, name: t.name, places: t.name.split(" ").slice(1, -1) })).find((t) => t.places.length === 1 && network.trains[t.i].kind === "RB"),
@@ -131,9 +130,7 @@ export function chapters(F) {
   const P = F.penalty;
   const M = F.map;
   const koeln = M.id === "koeln";
-  const board = F.leaderboard !== null;
   const b = F.runs.baseline;
-  const e = F.runs.estimate;
   const o = F.runs.optimized;
   const kindList = F.kinds.map((k) => `${count(k.count)} ${kindText(k.kind).plural}`);
   const sbahnNames = F.tight.map((i) => F.trainNames[i]);
@@ -160,7 +157,8 @@ export function chapters(F) {
   const floorText = `No dispatcher can score better than −${amount(F.floor.total)}.`;
   const { atTarget, slow: tooSlow } = F.reasons;
   const nRuns = F.runList.length;
-  const cards = nRuns + (board ? 1 : 0);
+  const planned = F.runList.filter((r) => r.source === "plan").length;
+  const cards = nRuns + 1; // the runs, and the leaderboard's figure
   const hub = F.hub;
 
   // Why zero is out of reach: on Neu-Frankfurt two slow S-Bahns; on Köln also trains done as they enter.
@@ -195,7 +193,7 @@ export function chapters(F) {
             { icon: "flag", title: "Stop where the timetable says", text: `Each train has a timetable: the stations it must halt at on its way, and a time window at each. The ${F.trains} trains have ${F.stops} stops to serve between them.` },
             { icon: "clock", title: "Arrive on time", text: "Every train should reach its destination by the time its timetable gives." },
             { icon: "warning", title: "Never get in each other's way", text: "Two trains can't share a piece of track. A train held back by another costs points, and trains that block each other can jam the whole network." },
-            { icon: "chart", title: "Lose as few points as possible", text: `Every mistake costs penalty points, and the score is minus their sum: the closer to zero, the better.${board ? ` The best score on the challenge's leaderboard (October 2026) is ${count(F.leaderboard)}.` : ""}` }
+            { icon: "chart", title: "Lose as few points as possible", text: `Every mistake costs penalty points, and the score is minus their sum: the closer to zero, the better. The best score on the challenge's leaderboard (October 2026) is ${count(F.leaderboard)}.` }
           ]
         },
         {
@@ -299,7 +297,7 @@ export function chapters(F) {
           type: "points", items: [
             { icon: "clock", title: "When points count", text: "A collision counts at once. A train's stops and its delay count when it reaches its destination, or when the episode ends: during a run, the score lags behind what the map shows." },
             { icon: "warning", title: "Zero is out of reach here", text: zeroText },
-            ...(board ? [{ icon: "chart", title: `The best on the leaderboard: ${count(F.leaderboard)}`, text: `The current best score on the challenge's leaderboard for ${M.name}.` }] : [])
+            { icon: "chart", title: `The best on the leaderboard: ${count(F.leaderboard)}`, text: "The current best score on the challenge's leaderboard, as the project brief gives it (October 2026). The brief names no map for it; the page quotes it and does not simulate it." }
           ]
         }
       ]
@@ -308,9 +306,7 @@ export function chapters(F) {
       id: "results",
       nav: `${capital(inWords(cards))} results`,
       title: o.served === o.stops ? "From gridlock to every stop served" : o.collisions === 0 && o.gridlockFrom === null ? "From gridlock to a network without collisions" : "What each dispatcher gets",
-      lead: board
-        ? "Dispatch Lab runs three dispatchers on the same scenario and puts them next to the leaderboard's best. Each bar shows the points lost, on the baseline's scale: the shorter, the better."
-        : `Dispatch Lab runs ${inWords(nRuns)} dispatchers on ${M.name}: the challenge's baseline and its own planner. The brief gives no leaderboard figure for this map. Each bar shows the points lost, on the baseline's scale: the shorter, the better.`,
+      lead: `Dispatch Lab runs ${inWords(nRuns)} dispatchers on ${M.name}, the challenge's baseline and its own planner, and puts them next to the leaderboard's best, a figure from the project brief. Each bar shows the points lost, on the baseline's scale: the shorter, the better.`,
       blocks: [
         {
           type: "results", cards: [
@@ -320,18 +316,12 @@ export function chapters(F) {
               happens: baselineHappens,
               watch: b.gridlockFrom !== null ? "Watch the gridlock" : "Watch the baseline"
             },
-            ...(board ? [{
+            {
               run: "best", name: "Current best", score: count(F.leaderboard), source: "Quoted from the leaderboard, not simulated",
-              labels: ["What it is", "What its score tells"],
+              labels: ["What it is", "Where it comes from"],
               does: "The best entry on the challenge's leaderboard (October 2026). Its code is not public, so it can't be replayed here.",
-              happens: `Only the score is known. It fits a dispatcher that gets the trains through but serves few stops or none: losing all ${count(F.stops)} stops alone costs ${amount(lostStops)} points. The estimate below is such a dispatcher: it guesses the strategy, not the exact score.`
-            }] : []),
-            ...(e ? [{
-              run: "estimate", name: "Estimate", score: score(e.score), ai: true, source: "Planned in Python beforehand, replayed here",
-              does: "A guess by Claude, Anthropic's AI model, at the kind of strategy behind the best score. A planner books each train's whole route before letting it in, so trains never meet. The route leads through the stations, but no train halts there.",
-              happens: `No collision, no gridlock: all ${count(e.n)} trains arrive. All ${count(e.stops)} stops are lost (${amount(e.passed * P.notServed)} points), and trains wait up to ${count(e.longestWait.wait)} steps at their entry for a free route (${plural(e.lateSteps, "step")} late in all).`,
-              watch: "Watch the estimate"
-            }] : []),
+              happens: "The project brief gives the score, and only the score: it names no map for it."
+            },
             {
               run: "optimized", name: "Optimized", score: score(o.score), source: "Planned in Python beforehand, replayed here",
               does: "This page's own planner, PlannerController, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
@@ -346,14 +336,14 @@ export function chapters(F) {
       id: "page",
       nav: "Using this page",
       title: "How to read this page",
-      lead: `Your browser simulates every step of the ${inWords(nRuns)} runs with the challenge's rules and gets the same scores as the challenge's own Python runner, to the last digit. The baseline decides as it goes; ${nRuns > 2 ? "the two planners worked out their commands" : "the planner worked out its commands"} in Python beforehand, and the page replays them.`,
+      lead: `Your browser simulates every step of the ${inWords(nRuns)} runs with the challenge's rules and gets the same scores as the challenge's own Python runner, to the last digit. The baseline decides as it goes; ${planned === 1 ? "the planner worked out its commands" : `the ${inWords(planned)} planners worked out their commands`} in Python beforehand, and the page replays them.`,
       blocks: [
         {
           type: "howto", items: [
-            { area: "maps", title: "Two maps", text: "Neu-Frankfurt, the challenge's default map, and Köln, a larger one: switch between them at the top of the page. Each has its own trains, timetables and runs." },
+            { area: "maps", title: "Two maps", text: "Köln, the larger of the two maps in the challenge's final, which this page opens on, and Neu-Frankfurt, the map the challenge's own runner loads by default: switch between them at the top of the page. Each has its own trains, timetables and runs." },
             { area: "runs", title: "Runs and playback", text: `Switch between the ${inWords(nRuns)} runs at the top. Play, step through or drag the timeline; the speed buttons go up to 16 times.` },
             { area: "map", title: "The map", text: "Each train is a hexagon. Its colour and outline show its state, as the legend under the map names them: on time, behind its timetable, standing, blocked (a dashed ring: a train is in its way right now) or stuck (a dashed ring: standing 40 steps or more past its time). The line under the run's name says what is going on. The faint squares under the tracks are the railway's cells (Grid, beside the views, switches them off); the honeycomb around them is only the page's background." },
-            { area: "kpis", title: "The tiles", text: board ? "The score so far, the run's final score against the leaderboard's best, the trains that have arrived and the stops served." : "The score so far, the run's final score against the best any dispatcher can reach here, the trains that have arrived and the stops served." },
+            { area: "kpis", title: "The tiles", text: "The score so far, the run's final score against the leaderboard's best, the trains that have arrived and the stops served." },
             { area: "panel", title: "The panel", text: "Story: what happens in the run and when. Score: where the points go. Trains: each train's timetable as it ran. Events: everything, in order. Method: how the page computes it." }
           ]
         }

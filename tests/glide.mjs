@@ -5,11 +5,10 @@
 //   moving    a train Python has moving is drawn moving in that step, unless it is inching forward
 //             inside one cell between two halts (it never leaves that cell): such steps are counted
 //   standing  a train Python has standing is drawn still, at the centre of its cell
-//   speed     in Neu-Frankfurt's estimate run, where no train ever halts, each train is drawn moving
-//             exactly as far in every step as Python moves it (the S-Bahns half a cell, the others a
-//             whole one);
-//             in every run a train running at full speed is drawn a cell per step, through the
-//             centre of each cell at each step
+//   speed     in every run a train running at full speed is drawn a cell per step, through the
+//             centre of each cell at each step, and a train running steadily at half speed (the
+//             S-Bahns and Köln's local trains) half a cell per step, at the centre of each cell it
+//             enters
 //   way       a train is drawn less than a cell from the centre of the cell Python has it in, never
 //             backwards along its way and never more than a cell in a step (no train is faster); it
 //             glides into its destination in the step it arrives
@@ -119,8 +118,7 @@ function checkMap(mapId) {
   const cellOf = (p) => rail.index(p[0], p[1]);
   const controllers = {
     baseline: () => new OrderedController(),
-    estimate: () => new ReplayController(readJson(planPath(mapId, "estimate")), "estimate"),
-    optimized: () => new ReplayController(readJson(planPath(mapId, "optimized")), "optimized")
+    optimized: () => new ReplayController(readJson(planPath(mapId)), "optimized")
   };
   // The trains at half a cell per step: Neu-Frankfurt's three S-Bahns; on Köln every Local train
   // (0.6 in the file, which Flatland rounds to 0.5), the S-Bahn loops among them.
@@ -131,10 +129,10 @@ function checkMap(mapId) {
   else check(sbahns.length > 0 && JSON.stringify(sbahns) === JSON.stringify(halfSpeed), `${mapId}: the scenario's ${sbahns.length} ${slowKind} trains (trains ${sbahns[0]}–${sbahns[sbahns.length - 1]}), and only they, run at half a cell per step`);
   const atTarget = scenario.agents.filter((a) => a.initialPos === a.target).map((a) => a.handle);
   check(mapId === "frankfurt" ? atTarget.length === 0 : atTarget.length === 6, `${mapId}: ${atTarget.length ? `trains ${atTarget.join(", ")} start on their destination` : "no train starts on its destination"}`);
-  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id]()) });
+  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, atTarget, run: simulate(scenario, controllers[id]()) });
 }
 
-function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run }) {
+function checkRun(mapId, runId, { scenario, rail, cellOf, atTarget, run }) {
   // On Neu-Frankfurt the messages name the run alone, as before Köln was added.
   const id = mapId === "frankfurt" ? runId : `${mapId} ${runId}`;
   const fx = readJson(fixturePath(mapId, `trace_${runId}.json`));
@@ -150,9 +148,10 @@ function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run 
   const mv = movingCheck(drawn, rows, T, n, inching);
   check(mv.shownStanding.length === 0, `${id}: of ${mv.moving} steps in which Python moves a train, none is drawn standing (${mv.shownStanding.slice(0, 5).join("; ") || "none"}); ${mv.inchingShownStanding} of ${inchingCount} steps inching inside a cell between two halts are drawn standing`);
 
-  // standing, way, full speed
+  // standing, way, full speed, half speed
   const missing = [];
-  let farthest = 0, longestStep = 0, backwards = [], fullSteps = 0, fullBad = [], arrivals = 0, arrivalsStill = [];
+  let farthest = 0, longestStep = 0, backwards = [], fullSteps = 0, fullBad = [], halfCells = 0, halfBad = [], arrivals = 0, arrivalsStill = [];
+  const key = (p) => (p ? `${p[0]},${p[1]}` : "-");
   for (let t = 0; t <= T; t += 1) {
     for (let i = 0; i < n; i += 1) {
       const p = rows[t].pos[i];
@@ -181,12 +180,23 @@ function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run 
         fullSteps += 1;
         if (Math.abs(length - 1) > EPS || dist(pts[0], centre(p)) > EPS || dist(pts[SAMPLES], centre(q)) > EPS) fullBad.push(`train ${i} step ${t + 1}`);
       }
+      // half speed, steadily: in a cell it entered at step t and leaves two steps later, and on
+      // through the next cell the same way, it is drawn half a cell per step, from the centre of
+      // the one cell to the centre of the next
+      const half = (u) => u >= 1 && u <= T && rows[u].pos[i] && rows[u].state[i] === MOVING && rows[u].speed[i] === 0.5;
+      const cell = (u) => key(rows[u].pos[i]);
+      if (t + 4 <= T && [t - 1, t, t + 1, t + 2, t + 3].every(half) && cell(t) !== cell(t - 1) && cell(t + 1) === cell(t) && cell(t + 2) !== cell(t + 1) && cell(t + 3) === cell(t + 2) && cell(t + 4) !== cell(t + 3)) {
+        halfCells += 1;
+        const next = stepPath(drawn, i, t + 1);
+        if (Math.abs(length - 0.5) > EPS || Math.abs(next.length - 0.5) > EPS || dist(pts[0], centre(p)) > EPS || dist(next.pts[SAMPLES], centre(rows[t + 2].pos[i])) > EPS) halfBad.push(`train ${i} step ${t + 1}`);
+      }
     }
   }
   check(missing.length === 0, `${id}: every train on the map in Python's record is drawn (${missing.slice(0, 5).join("; ") || "all"})`);
   const st = standingCheck(drawn, rows, T, n);
   check(st.moved.length === 0 && st.off.length === 0, `${id}: in all ${st.standing} steps Python has a train standing, it is drawn still at the centre of its cell (${[...st.moved, ...st.off].slice(0, 5).join("; ") || "none off"})`);
   check(fullSteps > 0 && fullBad.length === 0, `${id}: in all ${fullSteps} steps of running at full speed a train is drawn a cell per step, at the centre of its cell at each step (${fullBad.slice(0, 5).join("; ") || "none off"})`);
+  check(halfCells > 0 && halfBad.length === 0, `${id}: in all ${halfCells} cells a train runs through steadily at half speed, it is drawn half a cell per step, from the centre of the cell to the centre of the next (${halfBad.slice(0, 5).join("; ") || "none off"})`);
   check(farthest < 1, `${id}: at every step a train is drawn less than a cell from the centre of the cell Python has it in (farthest ${farthest.toFixed(3)})`);
   check(backwards.length === 0, `${id}: no train is ever drawn going back along its way (${backwards.slice(0, 5).join("; ") || "none"})`);
   check(longestStep <= 1 + EPS, `${id}: no train is drawn moving more than a cell in one step, as none can (longest ${longestStep.toFixed(3)})`);
@@ -197,22 +207,6 @@ function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run 
     const shown = [];
     for (let t = 0; t <= T; t += 1) for (const i of atTarget) if (rows[t].pos[i] || trainPoint(run.paths, rail, i, t)) shown.push(`train ${i} step ${t}`);
     check(shown.length === 0 && atTarget.every((i) => run.paths.routes[i].length === 0), `${id}: the ${atTarget.length} trains that start on their destination are never on the map, in Python's record or drawn (${shown.slice(0, 5).join("; ") || "none"})`);
-  }
-
-  // speed, where no train halts: drawn exactly as far as Python moves it
-  if (runId === "estimate") {
-    let steps = 0, sbahnSteps = 0;
-    const off = [];
-    for (let t = 0; t < T; t += 1) {
-      for (let i = 0; i < n; i += 1) {
-        if (!rows[t].pos[i] || !rows[t + 1].pos[i]) continue;
-        steps += 1;
-        if (sbahns.includes(i)) sbahnSteps += 1;
-        const { length } = stepPath(drawn, i, t);
-        if (Math.abs(length - rows[t + 1].speed[i]) > EPS) off.push(`train ${i} step ${t + 1}: ${length.toFixed(3)} for ${rows[t + 1].speed[i]}`);
-      }
-    }
-    check(steps > 0 && sbahnSteps > 0 && off.length === 0, `estimate: in all ${steps} steps on the map (${sbahnSteps} of them the S-Bahns'), each train is drawn moving exactly as far as Python moves it (${off.slice(0, 5).join("; ") || "all exact"})`);
   }
 
   // control 1: the old drawing shows moving trains standing
@@ -248,8 +242,7 @@ function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run 
     return b ? [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f] : a;
   };
   const cst = standingCheck(counter, rows, T, n);
-  if (cst.standing) check(cst.off.length > 0, `${id}: control: the standing check finds a drawing at the speed counter's distance leaving standing trains off centre in ${cst.off.length} of ${cst.standing} steps`);
-  else check(runId === "estimate", `${id}: control: no train stands in this run, so there is nothing for the standing check to catch`);
+  check(cst.standing > 0 && cst.off.length > 0, `${id}: control: the standing check finds a drawing at the speed counter's distance leaving standing trains off centre in ${cst.off.length} of ${cst.standing} steps`);
 }
 
 for (const [ok, what] of results) console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);

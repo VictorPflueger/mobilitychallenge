@@ -1,7 +1,7 @@
 /* Dispatch Lab — the app's settings for Vici's components (buttons, icon buttons, tags, tooltips),
- * the run switch and the playback speed, which Vici has no component for, and the AI label. As in
- * Rebate Hunter, text and targets keep projector sizes: nothing clickable is smaller than 40 px
- * (DESIGN.md, deviations). */
+ * and the run switch and the playback speed, which Vici has no component for. As in Rebate Hunter,
+ * text and targets keep projector sizes: nothing clickable is smaller than 40 px (DESIGN.md,
+ * deviations). */
 
 /* Buttons ------------------------------------------------------------------------------------ */
 .vc-button { --_h: var(--hit); --_fs: var(--vc-font-size-md); white-space: nowrap; }
@@ -64,7 +64,6 @@
 /* A run's series swatch: a flat-top hexagon in the run's colour. */
 .run-swatch { display: inline-block; flex: none; width: calc(13px * 1.1547); height: 13px; clip-path: var(--vc-hex); background: var(--run-color, var(--vc-text)); }
 [data-run="baseline"] { --run-color: var(--run-baseline); }
-[data-run="estimate"] { --run-color: var(--run-estimate); }
 [data-run="optimized"] { --run-color: var(--run-optimized); }
 
 /* Tags ----------------------------------------------------------------------------------------- */
@@ -72,24 +71,3 @@
 
 /* The fjord tag of a checked score: the browser's score is the Python runner's to the last digit. */
 .verified-tag .vc-icon { color: var(--vc-info-solid); }
-
-/* AI label ------------------------------------------------------------------------------------ */
-/* After IBM Carbon for AI: Vici's feature tag (lilac, the sparkle, "AI") on content Claude wrote
-   or estimated, a 40 px target around it, and the explanation in Vici's popover look. */
-.ai-label {
-  display: inline-grid; place-items: center;
-  min-width: 40px; min-height: 40px; padding: 0 2px; margin: -8px 0;
-  border: 0; border-radius: var(--vc-radius-md); background: transparent; cursor: pointer;
-  vertical-align: middle;
-}
-.ai-label .ai-label-chip { --_h: 24px; font-weight: var(--vc-weight-bold); letter-spacing: 0.02em; }
-.ai-label:hover .ai-label-chip,
-.ai-label[aria-expanded="true"] .ai-label-chip { --_bg: var(--vc-feature-border); }
-.ai-tip.vc-popover {
-  position: fixed; z-index: 2500;
-  width: min(340px, calc(100vw - 24px));
-  color: var(--vc-text-muted); line-height: 1.45; font-size: var(--vc-font-size-sm);
-}
-.ai-tip[hidden] { display: none; }
-.ai-tip strong { display: block; margin-bottom: 4px; color: var(--vc-text); font-size: var(--vc-font-size-md); }
-.ai-tip p { margin: 4px 0 0; }

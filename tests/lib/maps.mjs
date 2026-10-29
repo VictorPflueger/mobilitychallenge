@@ -1,11 +1,11 @@
 // The maps the tests check, with their files: the same list as js/maps.js (the page) and
-// tools/maps.py (the Python tools), which tests/data.mjs holds together. Paths are relative to the
-// site's root: data/<id>/ holds the map, the plans and the Python runner's scores, and
-// tests/fixtures/<id>/ the Python traces and the rules.
+// tools/maps.py (the Python tools), in the same order (Köln, the page's default, first), which
+// tests/data.mjs holds together. Paths are relative to the site's root: data/<id>/ holds the map,
+// the plan and the Python runner's scores, and tests/fixtures/<id>/ the Python traces and the rules.
 
 export const MAPS = {
-  frankfurt: { id: "frankfurt", file: "neufrankfurt_19agents.json", runs: ["baseline", "estimate", "optimized"] },
-  koeln: { id: "koeln", file: "kk_36agents.json", runs: ["baseline", "optimized"] }
+  koeln: { id: "koeln", file: "kk_36agents.json", runs: ["baseline", "optimized"] },
+  frankfurt: { id: "frankfurt", file: "neufrankfurt_19agents.json", runs: ["baseline", "optimized"] }
 };
 
 export const MAP_IDS = Object.keys(MAPS);
@@ -13,8 +13,8 @@ export const MAP_IDS = Object.keys(MAPS);
 /** data/<id>/<file>: the map as the site serves it. */
 export const mapPath = (id) => `data/${id}/${MAPS[id].file}`;
 
-/** The plan a replayed run reads: the estimate's or PlannerController's. */
-export const planPath = (id, run) => `data/${id}/${run === "estimate" ? "estimate_actions" : "planner_actions"}.json`;
+/** The plan the optimized run replays: PlannerController's. */
+export const planPath = (id) => `data/${id}/planner_actions.json`;
 
 /** The Python runner's scores for the map. */
 export const referencePath = (id) => `data/${id}/reference.json`;

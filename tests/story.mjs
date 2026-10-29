@@ -27,8 +27,7 @@ const scenario = loadScenario(data);
 const network = describe(data, map);
 const controllers = {
   baseline: () => new OrderedController(),
-  estimate: () => new ReplayController(readJson(planPath(id, "estimate")), "estimate"),
-  optimized: () => new ReplayController(readJson(planPath(id, "optimized")), "optimized")
+  optimized: () => new ReplayController(readJson(planPath(id)), "optimized")
 };
 
 for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
@@ -53,7 +52,7 @@ for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
   for (const [what, a, b] of pairs) check(same(a, b), `${tag}: ${what}: page ${JSON.stringify(a)}, Python ${JSON.stringify(b)}`);
 
   // The moments: each step and train as the trace has it.
-  const list = moments(run, scenario, network, page, r.why || {});
+  const list = moments(run, scenario, network, page);
   const at = (kind) => list.find((m) => m.kind === kind);
   // the first train done as it entered (its first cell is its destination), and the first to arrive
   // by running there: the earliest step, then the lowest train number

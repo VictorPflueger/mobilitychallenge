@@ -1,20 +1,19 @@
 // The browser engine against the official Python environment, step for step (Node.js only), on
-// every map (tests/lib/maps.mjs: Neu-Frankfurt and Köln).
-//   baseline | estimate | optimized   runs the JavaScript engine with that controller and compares
-//                                     every step with tests/fixtures/<map>/trace_<name>.json, which
-//                                     tools/export_fixtures.py records from flatland-rl 4.2.2 through
-//                                     the challenge's runner: each train's action, position,
-//                                     direction, state, speed, distance in the cell, reward and done
-//                                     flag, and the final score, compared exactly (no tolerance).
-//                                     A map without that run (Köln has no estimate) skips it
-//   terms                             the score breakdown the page shows (js/sim.js, as the page runs
-//                                     it): every term of every reward (a crash, a stop not served, a
-//                                     delay, ...) against the terms the Python reward function itself
-//                                     computed (tools/export_fixtures.py, Decomposer), for every run,
-//                                     and the breakdown's totals and counts per kind
-//   distance-map                      the distance map of every train, cell and direction, by digest
-//   python                            sum(), set order and round() against CPython 3.13 on random
-//                                     inputs (once, for both maps)
+// every map (tests/lib/maps.mjs: Köln and Neu-Frankfurt).
+//   baseline | optimized   runs the JavaScript engine with that controller and compares every step
+//                          with tests/fixtures/<map>/trace_<name>.json, which
+//                          tools/export_fixtures.py records from flatland-rl 4.2.2 through the
+//                          challenge's runner: each train's action, position, direction, state,
+//                          speed, distance in the cell, reward and done flag, and the final score,
+//                          compared exactly (no tolerance). A map without that run skips it
+//   terms                  the score breakdown the page shows (js/sim.js, as the page runs it):
+//                          every term of every reward (a crash, a stop not served, a delay, ...)
+//                          against the terms the Python reward function itself computed
+//                          (tools/export_fixtures.py, Decomposer), for every run, and the
+//                          breakdown's totals and counts per kind
+//   distance-map           the distance map of every train, cell and direction, by digest
+//   python                 sum(), set order and round() against CPython 3.13 on random inputs
+//                          (once, for both maps)
 // Usage: node tests/engine.mjs [case ...] [--map frankfurt|koeln] [koeln:baseline ...]
 //        (no case: all of them; no map: every map)
 import { createHash } from "node:crypto";
@@ -42,8 +41,8 @@ export function makeEnv(options = {}) {
 
 export function makeController(name, options = {}) {
   if (name === "baseline") return new OrderedController();
-  if (name === "estimate" || name === "optimized") {
-    const plan = read(planPath(options.map || "frankfurt", name));
+  if (name === "optimized") {
+    const plan = read(planPath(options.map || "frankfurt"));
     if (options.mutatePlan) options.mutatePlan(plan);
     return new ReplayController(plan, name);
   }
@@ -180,7 +179,7 @@ function pythonSemantics() {
   return { ok: !problems.length, problems, counts: [fx.sums.length, fx.sets.length, fx.rounds.length], python: fx.python };
 }
 
-const CASES = ["python", "distance-map", "baseline", "estimate", "optimized", "terms"];
+const CASES = ["python", "distance-map", "baseline", "optimized", "terms"];
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { maps, cases: wanted } = parseCases(process.argv.slice(2), CASES);

@@ -1,37 +1,27 @@
-// The maps Dispatch Lab shows, and what the page needs to know about each beyond its file: the runs
-// recorded on it, the leaderboard's figure where there is one, names for its stations (the files
-// number them) and the two views of the map. tools/maps.py lists the same maps for the Python tools
-// and tests/lib/maps.mjs for the tests; tests/data.mjs holds the three lists together.
+// The maps Dispatch Lab shows, in the order of the header's map switch, and what the page needs to
+// know about each beyond its file: the runs recorded on it, the leaderboard's figure, names for its
+// stations (the files number them) and the two views of the map. tools/maps.py lists the same maps
+// for the Python tools and tests/lib/maps.mjs for the tests; tests/data.mjs holds the three lists
+// together.
 //
 // Station names come from the scenario's own line names, as the README says: a station at the end of
 // a line named after a place gets that place's name; every other station keeps its number
 // ("Stop 14"). Köln's lines name only Essen and Frankfurt (ICE_Essen, ICE_Frankfurt,
 // ICE_Frankfurt_nebenstrecke); its other line names are compass points and loops, not places.
+//
+// The leaderboard's current best is the project brief's figure (October 2026). The brief names no
+// map for it, so every map shows it, as the brief gives it. It is not computed.
 
 export const MAPS = [
-  {
-    id: "frankfurt",
-    name: "Neu-Frankfurt",
-    file: "neufrankfurt_19agents.json",
-    // The challenge's runner loads this map (src/tbrain-simulation.py on main).
-    runs: ["baseline", "estimate", "optimized"],
-    // The leaderboard's current best, as the project brief gives it (October 2026). Not computed.
-    leaderboard: -37374,
-    stations: {
-      names: { 1: "Hauptbahnhof", 2: "Flughafen (RB, S)", 3: "Flughafen (ICE)", 7: "Langen", 8: "Offenbach", 9: "Maintal", 10: "Taunus", 11: "Höchst" },
-      short: { 1: "Hbf", 2: "Flughafen (RB, S)", 3: "Flughafen (ICE)", 7: "Langen", 8: "Offenbach", 9: "Maintal", 10: "Taunus", 11: "Höchst" }
-    },
-    // The whole grid (its tracks fill it), and the busy middle around the Hauptbahnhof.
-    views: { network: "grid", middle: { label: "Around the Hbf", box: [24, 8.5, 59, 29] } }
-  },
   {
     id: "koeln",
     name: "Köln",
     file: "kk_36agents.json",
     // The larger of the two maps the challenge's final ran on (T-Systems' whitepaper, October 2026:
     // "Im Finale liefen die Lösungen auf Karten von Frankfurt und Köln"); the file never names it.
+    // The page opens on it (DEFAULT_MAP).
     runs: ["baseline", "optimized"],
-    leaderboard: null,
+    leaderboard: -37374,
     stations: {
       names: { 12: "Essen", 16: "Frankfurt (branch line)", 18: "Frankfurt" },
       short: { 12: "Essen", 16: "Frankfurt (branch)", 18: "Frankfurt" }
@@ -39,17 +29,48 @@ export const MAPS = [
     // The tracks fill only part of the grid, so the whole network is the tracks' extent; the middle
     // is the hub (Stop 14) and the stations east of it.
     views: { network: "tracks", middle: { label: "Around Stop 14", box: [47.5, 35, 56, 41] } }
+  },
+  {
+    id: "frankfurt",
+    name: "Neu-Frankfurt",
+    file: "neufrankfurt_19agents.json",
+    // The challenge's runner loads this map by default (src/tbrain-simulation.py on main).
+    runs: ["baseline", "optimized"],
+    leaderboard: -37374,
+    stations: {
+      names: { 1: "Hauptbahnhof", 2: "Flughafen (RB, S)", 3: "Flughafen (ICE)", 7: "Langen", 8: "Offenbach", 9: "Maintal", 10: "Taunus", 11: "Höchst" },
+      short: { 1: "Hbf", 2: "Flughafen (RB, S)", 3: "Flughafen (ICE)", 7: "Langen", 8: "Offenbach", 9: "Maintal", 10: "Taunus", 11: "Höchst" }
+    },
+    // The whole grid (its tracks fill it), and the busy middle around the Hauptbahnhof.
+    views: { network: "grid", middle: { label: "Around the Hbf", box: [24, 8.5, 59, 29] } }
   }
 ];
 
-export const DEFAULT_MAP = "frankfurt";
+/** The map the page opens on: its address needs no ?map= (js/main.js builds the links). */
+export const DEFAULT_MAP = "koeln";
 
 export const mapById = (id) => MAPS.find((m) => m.id === id);
 
-/** The map the address asks for (?map=koeln), or the default one. */
+/**
+ * The map the address asks for (?map=frankfurt), or the default one, Köln: without ?map=, with
+ * ?map=koeln (the links from before Köln became the default) and with a map the page does not know.
+ */
 export function mapFromSearch(search) {
   const id = new URLSearchParams(search).get("map");
   return mapById(id) || mapById(DEFAULT_MAP);
+}
+
+/**
+ * The query of a map's page, for links and the address: no map parameter for the default map
+ * (Köln), map=frankfurt for Neu-Frankfurt, then the parameters given ({ run, step }; null or
+ * undefined ones are left out). "" when there is nothing to say.
+ */
+export function mapSearch(map, params = {}) {
+  const p = new URLSearchParams();
+  if (map.id !== DEFAULT_MAP) p.set("map", map.id);
+  for (const [key, value] of Object.entries(params)) if (value !== null && value !== undefined) p.set(key, String(value));
+  const query = p.toString();
+  return query ? `?${query}` : "";
 }
 
 /** data/<id>/<file>: where the page loads a map's files from. */

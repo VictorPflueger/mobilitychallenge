@@ -8,10 +8,6 @@
    "reward": -74022.59999999998,
    "steps": 1248
   },
-  "estimate": {
-   "reward": -32488.800000000007,
-   "steps": 1043
-  },
   "optimized": {
    "reward": -1014.0,
    "steps": 597

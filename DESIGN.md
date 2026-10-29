@@ -4,11 +4,11 @@ How the page looks and why. It follows Rebate Hunter (VictorPflueger/PROC-Rebate
 
 ## 1. The brief
 
-One page that a jury, a team or a curious engineer can open and understand in a minute, even one who has never heard of the challenge: what the challenge asks, how a run is scored, where a dispatching strategy loses its points on the Neu-Frankfurt scenario, and why the optimized planner loses almost none. A second map, Köln, is one click away: the same page on a larger network, where the same planner leaves 11 of 36 trains at their origin. It has to read on a projector (1920 × 1080 down to 1280 × 720) and still work on a phone. Every figure on it must be the engine's, and the engine must be the challenge's; every figure in its words must come from the scenario, the rules or the runs, never typed in.
+One page that a jury, a team or a curious engineer can open and understand in a minute, even one who has never heard of the challenge: what the challenge asks, how a run is scored, and where a dispatching strategy loses its points. It opens on Köln, the larger of the two maps in the challenge's final, where the optimized planner leaves 11 of 36 trains at their origin; Neu-Frankfurt, the map the challenge's runner loads, is one click away: the same page on a smaller network, where the same planner loses almost no points. Both show the leaderboard's current best as the brief gives it. It has to read on a projector (1920 × 1080 down to 1280 × 720) and still work on a phone. Every figure on it must be the engine's, and the engine must be the challenge's; every figure in its words must come from the scenario, the rules or the runs, never typed in.
 
 ## 2. The shell (Rebate Hunter's)
 
-- **Header**: the page icon (Vici's flag in a lilac hexagon cell, the colour of a prototype's card on Victor's website), the name with the map and its number of trains under it, the map switch (Neu-Frankfurt, Köln; a segmented control like the run switch, the map on screen pressed), the black-and-white tape badge with the word SIMULATION, *How it works* (the guide), the theme toggle, and four KPI tiles: the score so far, the distance to the leaderboard's −37,374 (on Köln, which has no leaderboard figure, the distance to the best score possible), trains arrived, stops served.
+- **Header**: the page icon (Vici's flag in a lilac hexagon cell, the colour of a prototype's card on Victor's website), the name with the map and its number of trains under it, the map switch (Köln, Neu-Frankfurt; a segmented control like the run switch, the map on screen pressed), the black-and-white tape badge with the word SIMULATION, *How it works* (the guide), the theme toggle, and four KPI tiles: the score so far, the distance to the leaderboard's −37,374 (the brief's figure, on both maps), trains arrived, stops served.
 - **Control bar**: the run switch (each run with its series colour and final score), Play (the one solid merlot button), four step buttons, three speeds, the timeline with its step label, and the playback status as a Vici tag with a hexagon pip.
 - **Workspace**: the network map (62 %), with its two views and the grid switch at its top right, and a tabbed panel (38 %): Story, Score, Trains, Events, Method.
 - **Footer**: how the numbers come about (checked against the Python runner) and Vici's byline with Victor's LinkedIn and website. The app links to its author, never to its own source code.
@@ -21,10 +21,9 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 
 1. **Merlot** (`--vc-accent`) is the person at the controls: the Play button and the focus ring. It never encodes a state, and a selection is always ink, never merlot.
 2. **Danger, warning, success** are the trains' outcomes: blocked, stuck and lost (danger), behind the timetable (warning), on time and served (success). Every state also differs in form, so no state depends on colour alone (below).
-3. **Lilac**, Vici's feature tone, is the AI's voice: the estimate is Claude's reconstruction, and it carries Vici's AI label.
-4. **Fjord**, the info tone, is checking: "same score as the Python runner".
-5. **Each run keeps one series colour** from Vici's chart palette: baseline `data-8` (the baselines' grey-brown), estimate `data-5` (lilac, the AI's), optimized `data-2` (teal). The leaderboard's figure, which is not simulated, is a dashed outline.
-6. **Ink** carries everything else: the network, labels, a train on time.
+3. **Fjord**, the info tone, is checking: "same score as the Python runner".
+4. **Each run keeps one series colour** from Vici's chart palette: baseline `data-8` (the baselines' grey-brown), optimized `data-2` (teal). The leaderboard's figure, which is not simulated, is a dashed outline.
+5. **Ink** carries everything else: the network, labels, a train on time.
 
 **Trains** are flat-top hexagons with their number when the marker is large enough (17 px). Form first, colour second:
 
@@ -52,7 +51,7 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 ## 5. The panel
 
 - **Story** (first): what the run's dispatcher does, its figures (trains arrived, stops served, collisions, score), the moments worth watching, each with the step it happens at, and why the run scores what it scores (the largest penalty kinds and their share). A moment jumps to its step and rings its train on the map, and the story stays in view; the moment on screen carries an ink frame. A button at the end leads on to the next run, and after the optimized run to the comparison of all scores. The moments' stripes follow the colour grammar: a collision, a gridlock or a station passed in danger, a wait in warning, a stop served or an arrival in success.
-- **Score**: the map's scores as bars on one scale (a shorter bar is better), each simulated one with its check: four on Neu-Frankfurt, the leaderboard's among them, two on Köln; where the points go, as a table of the eight penalty kinds with count, the value so far and the final value; the score over time for the map's runs, with a line at −37,374 on Neu-Frankfurt.
+- **Score**: the map's scores as bars on one scale (a shorter bar is better), each simulated one with its check: three on each map, the leaderboard's among them; where the points go, as a table of the eight penalty kinds with count, the value so far and the final value; the score over time for the map's runs, with a line at −37,374.
 - **Trains**: all of the map's trains (19 or 36) with their state at the step on screen, stops served and points; picking one frames its stops on the map and opens its timetable as run (due, arrived, earliest departure, left).
 - **Events**: newest first, up to the step on screen; each jumps to its step and picks its train.
 - **Method**: what runs in the browser, how it is checked, the runs, reading the map, how the score works, and the limits.
@@ -61,19 +60,19 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 
 ## 5a. The guide
 
-For a reader who knows nothing of the challenge, in the order they need it, told on the map on screen (each map has its own guide, with the same seven chapters): (1) the challenge, with the real network drawn small; (2) a railway made of grid cells, with a made-up stretch that shows a cell, a buffer stop, a train, a switch, a station and a level-free crossing; (3) the timetables, with the map's three kinds of train and one train's real timetable; (4) the decisions: the five commands, and three scenes of trains meeting (free track, a taken cell, head to head); (5) the score, as a table of the seven penalties as the challenge's code sets them for the map, the one rule that decides everything (a lost stop costs as much as 499 steps of delay on Neu-Frankfurt, 684 on Köln), when points count (a run's score lags behind the map), and why zero is out of reach (no dispatcher can beat −944 on Neu-Frankfurt, −25,010.5 on Köln, where six S-Bahn loops are done as they enter); (6) the results, four on Neu-Frankfurt and two on Köln, each with where its figure comes from (simulated in the browser, quoted from the leaderboard, planned in Python and replayed), what it does, what happens, a bar on the baseline's scale and a button that closes the guide and plays that run with its story; (7) how to read the page, the map switch included.
+For a reader who knows nothing of the challenge, in the order they need it, told on the map on screen (each map has its own guide, with the same seven chapters): (1) the challenge, with the real network drawn small; (2) a railway made of grid cells, with a made-up stretch that shows a cell, a buffer stop, a train, a switch, a station and a level-free crossing; (3) the timetables, with the map's three kinds of train and one train's real timetable; (4) the decisions: the five commands, and three scenes of trains meeting (free track, a taken cell, head to head); (5) the score, as a table of the seven penalties as the challenge's code sets them for the map, the one rule that decides everything (a lost stop costs as much as 499 steps of delay on Neu-Frankfurt, 684 on Köln), when points count (a run's score lags behind the map), and why zero is out of reach (no dispatcher can beat −944 on Neu-Frankfurt, −25,010.5 on Köln, where six S-Bahn loops are done as they enter); (6) the results, three on each map (the two runs and the leaderboard's figure, which the brief names no map for), each with where its figure comes from (simulated in the browser, quoted from the leaderboard, planned in Python and replayed), what it does, what happens, a bar on the baseline's scale and, for a run, a button that closes the guide and plays that run with its story; (7) how to read the page, the map switch included.
 
 - Each chapter is short: a heading, a lead sentence, then the figure or table that carries it. The drawings use the map's own classes, so a track, a platform and a train look as they do on the map.
 - The chapter list is Vici's vertical stepper (numbers in hexagons; the open chapter marked by its label and the current step, not merlot). Below 900 px it becomes a row of numbered hexagons above the chapter; on a phone, the hexagons alone, spread over the width, and the dialog takes the whole screen.
 - Words in the drawings stay 10 px or larger on any screen: the network's names are laid out again for the width they are drawn at (13 px, 11 px when narrow), and below about 380 px the pieces drawing swaps its labels for numbered hexagon markers with a key below it. The example timetable becomes one block per station on a small phone.
-- The focus starts on *Next* and moves to each new chapter's heading; Escape closes the guide (or, first, an open AI note inside it).
+- The focus starts on *Next* and moves to each new chapter's heading; Escape closes the guide.
 
 ## 6. Built for the room
 
 - 44 px targets for the main controls (Play, the step buttons, tabs, the trains' rows, events, the byline's links), 40 px for the header's theme toggle and *How it works* (Rebate Hunter's sizes).
 - The control bar stays on one row from 1280 px; the run switch drops its scores below 1400 px (the KPI tiles and the Score tab keep them).
 - Fluid root size: 15 px at 1280 px wide, about 17 px at 1920 px, never more than 18 px.
-- Keyboard: Vici's tabs with the arrow keys, Escape closes the guide and the AI label, the skip link, visible focus. Forced colours keep tracks and trains visible.
+- Keyboard: Vici's tabs with the arrow keys, Escape closes the guide, the skip link, visible focus. Forced colours keep tracks and trains visible.
 - A strict Content Security Policy: scripts, styles, fonts and data from this site only; no `innerHTML` anywhere.
 
 ## 7. Deviations
@@ -83,7 +82,7 @@ From Rebate Hunter:
 - No live agent and no API key: everything is computed in the browser from the scenario.
 - The playback status is a Vici tag at control height (44 px), so it lines up with the bar.
 - The first visit opens a seven-chapter guide instead of a short intro window: the page has to explain a challenge its reader may never have heard of.
-- A second scenario sits behind a switch in the header, not in a menu: the two maps are the page's two subjects, and a link can open either (`?map=koeln`). Switching loads the other map's page.
+- A second scenario sits behind a switch in the header, not in a menu: the two maps are the page's two subjects, and a link can open either (Köln, the first, with no map in it; Neu-Frankfurt with `?map=frankfurt`). Switching loads the other map's page.
 
 From Vici:
 - Over the railway's grid the honeycomb gives way to a plain canvas with the grid's squares on it; around the grid it stays the map's background, and with the grid switched off it fills the map again.
@@ -102,4 +101,4 @@ From Vici:
 | `tests/page-icon.mjs` | the page icon in the header, the boot screen and `favicon.svg` |
 | `tests/vici-files.mjs` | `vici/` is Vici v1.0.0, unchanged |
 | `tests/layout.mjs` | nine viewports from 1920 × 1080 over a tablet to 320 × 640, on both maps: no overflow, one-row control bar, nothing covering the drawing or another name, the map's tools (views and grid switch) inside its panel, the run's title and the situation line never cut, target sizes; both guides' seven chapters at each (inside the window, nothing wider than the chapter, drawings' words 10 px or larger) |
-| `tests/smoke.mjs` | the guide (chapters, Next, Back, focus, the AI note on top, Watch buttons), the Story tab (moments, the situation line, the next run), the map switch (Köln and back, links to a map, a run and a step) and the grid (a line along every cell edge on both maps, under the network, on the drawing's cells in both views, faint in both themes, the Grid switch and its memory) among the main flows |
+| `tests/smoke.mjs` | the page opening on Köln, the guide (chapters, Next, Back, focus, Watch buttons), the Story tab (moments, the situation line, the next run), the map switch (Köln first, Neu-Frankfurt and back, the address of each map, links to a map, a run and a step) and the grid (a line along every cell edge on both maps, under the network, on the drawing's cells in both views, faint in both themes, the Grid switch and its memory) among the main flows |

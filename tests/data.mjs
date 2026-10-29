@@ -1,8 +1,8 @@
 // The site's scenarios are the challenge's maps, unchanged: for every map, data/<id>/<file> byte for
-// byte the challenge repository's data/maps/<file>, and its plans, the Python runner's scores and
+// byte the challenge repository's data/maps/<file>, and its plan, the Python runner's scores and
 // every reference trace recorded on that same file (their map_sha256). The three lists of maps (the
 // page's js/maps.js, the tests' tests/lib/maps.mjs, the Python tools' tools/maps.py) name the same
-// maps, files and runs.
+// maps, files and runs, in the same order.
 // Usage: node tests/data.mjs --challenge <checkout of the challenge repository>
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -39,8 +39,8 @@ for (const id of MAP_IDS) {
   check(ours.equals(theirs), `${mapPath(id)} is byte for byte the challenge's data/maps/${file} (${ours.length} bytes, sha256 ${sha(ours).slice(0, 16)}…; challenge ${theirs.length} bytes, ${sha(theirs).slice(0, 16)}…)`);
   const digest = sha(theirs);
   for (const run of runs.filter((r) => r !== "baseline")) {
-    const plan = json(planPath(id, run));
-    check(plan.map_sha256 === digest && plan.map === file, `${id}: the ${run} run's plan (${planPath(id, run)}) was made on that map`);
+    const plan = json(planPath(id));
+    check(plan.map_sha256 === digest && plan.map === file, `${id}: the ${run} run's plan (${planPath(id)}) was made on that map`);
   }
   const reference = json(referencePath(id));
   check(reference.map_sha256 === digest && JSON.stringify(Object.keys(reference.runs)) === JSON.stringify(runs), `${id}: the Python runner's scores the page checks itself against (${referencePath(id)}) were computed on that map, for its ${runs.length} runs`);

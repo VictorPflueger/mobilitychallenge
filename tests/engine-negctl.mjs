@@ -1,9 +1,9 @@
 // Negative controls for tests/engine.mjs: the parity check must fail when the engine is wrong.
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
-// function, either plan, the distance map or the score breakdown) and the parity check must report
-// a difference. The unchanged engine must pass first, so a failure is the check's doing, not a
-// broken harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops,
-// which start on their destination's cell and must be finished as they enter.
+// function, the plan, the distance map or the score breakdown) and the parity check must report a
+// difference. The unchanged engine must pass first, so a failure is the check's doing, not a broken
+// harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops, which
+// start on their destination's cell and must be finished as they enter.
 // Usage: node tests/engine-negctl.mjs
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -31,14 +31,14 @@ function expectDifference(what, run) {
   results.push([!r.ok, `${what}: ${r.ok ? "NOT detected" : `detected (${r.message || `distance map of trains ${r.bad.join(", ")}`})`}`]);
 }
 
-// Positive control: the unchanged engine passes Neu-Frankfurt's three runs and its distance map.
-for (const name of ["baseline", "estimate", "optimized"]) {
+// Positive control: the unchanged engine passes Neu-Frankfurt's two runs and its distance map.
+for (const name of ["baseline", "optimized"]) {
   const r = parity(name);
   results.push([r.ok, `unchanged engine, ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
 }
 const dm = distanceMapParity();
 results.push([dm.ok, `unchanged engine, distance map: ${dm.ok ? "passes" : "FAILS"}`]);
-for (const name of ["baseline", "estimate", "optimized"]) {
+for (const name of ["baseline", "optimized"]) {
   const r = termsParity(name);
   results.push([r.ok, `unchanged page, the score breakdown of ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
 }
@@ -52,9 +52,9 @@ for (const name of ["baseline", "optimized"]) {
 const dmK = distanceMapParity({ map: "koeln" });
 results.push([dmK.ok, `unchanged engine, Köln distance map: ${dmK.ok ? "passes" : "FAILS"}`]);
 
-// Train dynamics: braking and acceleration, each checked across Neu-Frankfurt's three runs (the
-// baseline never brakes, so a run that does must catch it).
-const anyRun = (options) => ["baseline", "estimate", "optimized"].map((n) => parity(n, options)).find((r) => !r.ok) || { ok: true };
+// Train dynamics: braking and acceleration, each checked across Neu-Frankfurt's two runs (the
+// baseline never brakes, so the optimized run, which halts at every stop, must catch it).
+const anyRun = (options) => ["baseline", "optimized"].map((n) => parity(n, options)).find((r) => !r.ok) || { ok: true };
 expectDifference("braking 0.4 per step instead of 0.5", () => anyRun({ env: { brakingDelta: -0.4 } }));
 expectDifference("acceleration 0.25 per step instead of 0.3", () => anyRun({ env: { accelerationDelta: 0.25 } }));
 
@@ -108,14 +108,6 @@ expectDifference("one action of the plan changed", () => parity("optimized", {
   mutatePlan: (plan) => {
     const step = plan.actions.findIndex((a) => a.includes(2));
     plan.actions[step][plan.actions[step].indexOf(2)] = 0;
-  }
-}));
-
-// The estimate's plan: one train enters the network a step earlier than booked.
-expectDifference("one train of the estimate enters a step early", () => parity("estimate", {
-  mutatePlan: (plan) => {
-    const enter = plan.actions.findIndex((a, t) => t > 0 && a[2] !== 0); // train 2 waits longest at its entry
-    plan.actions[enter - 1][2] = plan.actions[enter][2];
   }
 }));
 

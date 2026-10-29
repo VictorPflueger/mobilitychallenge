@@ -1,8 +1,8 @@
-"""The maps Dispatch Lab shows, as the Python tools see them. js/maps.js lists the same maps for the
-page, and tests/lib/maps.mjs for the tests.
+"""The maps Dispatch Lab shows, as the Python tools see them, in the page's order. js/maps.js lists
+the same maps for the page, and tests/lib/maps.mjs for the tests.
 
 For each map: the challenge's file (data/maps/<file> in the challenge repository), the runs recorded
-on it, the folder of the site's data for it (data/<id>/: the map itself, the plans the page replays,
+on it, the folder of the site's data for it (data/<id>/: the map itself, the plan the page replays,
 the Python runner's scores) and the folder of its reference traces (tests/fixtures/<id>/).
 """
 import os
@@ -11,10 +11,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.dirname(HERE)
 
 MAPS = {
-    # The challenge's default map: the runner loads it (src/tbrain-simulation.py).
-    'frankfurt': {'file': 'neufrankfurt_19agents.json', 'runs': ('baseline', 'estimate', 'optimized')},
-    # The larger map of the challenge's final (36 trains); no estimate of a leaderboard entry here.
+    # The larger map of the challenge's final (36 trains); the page opens on it.
     'koeln': {'file': 'kk_36agents.json', 'runs': ('baseline', 'optimized')},
+    # The challenge's default map: the runner loads it (src/tbrain-simulation.py).
+    'frankfurt': {'file': 'neufrankfurt_19agents.json', 'runs': ('baseline', 'optimized')},
 }
 
 

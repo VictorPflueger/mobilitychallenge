@@ -7,9 +7,8 @@ import { icon } from "../icons.js";
 import { amount, count, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
 import { moments, runFacts } from "../story.js";
-import { runById, ESTIMATE_NOTE } from "../runs.js";
+import { runById } from "../runs.js";
 import { comparison, inWords, scoreOverTime } from "./charts.js";
-import { aiLabel } from "./ailabel.js";
 import { trainSwatch, trackGlyph } from "./map.js";
 import { STATE, balancedPenalties } from "../engine/env.js";
 import { floorReasons } from "../floor.js";
@@ -67,18 +66,18 @@ export function createPanel(root, ctx) {
     if (!stories.has(id)) {
       const run = runs.get(id);
       const facts = runFacts(run, scenario);
-      stories.set(id, { facts, moments: moments(run, scenario, network, facts, runById(id).why || {}) });
+      stories.set(id, { facts, moments: moments(run, scenario, network, facts) });
     }
     return stories.get(id);
   };
   // The way on from a run's story: the map's next run, told by what it achieves, and after the last
-  // run the comparison of the map's scores (its runs and, where there is one, the leaderboard's).
-  const RUN_NAME = { baseline: "baseline", estimate: "estimate", optimized: "optimized run" };
-  const scoresShown = runList.length + (map.leaderboard !== null ? 1 : 0);
+  // run the comparison of the map's scores (its runs and the leaderboard's figure).
+  const RUN_NAME = { baseline: "baseline", optimized: "optimized run" };
+  const scoresShown = runList.length + 1;
   const nextOf = (id) => {
     const i = runList.findIndex((r) => r.id === id);
     const nxt = runList[i + 1];
-    if (!nxt) return { run: null, text: scoresShown === 2 ? "Compare the two scores" : `Compare all ${inWords(scoresShown).toLowerCase()} scores` };
+    if (!nxt) return { run: null, text: `Compare all ${inWords(scoresShown).toLowerCase()} scores` };
     const f = storyOf(nxt.id).facts;
     const name = RUN_NAME[nxt.id];
     const text = f.served === f.stops ? `Next: how the ${name} serves every stop`
@@ -111,7 +110,7 @@ export function createPanel(root, ctx) {
       const next = nextOf(id);
       clear(storyHolder).append(
         h("section", { class: "story-intro" },
-          h("div", { class: "story-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("h3", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
+          h("div", { class: "story-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("h3", {}, r.title)),
           h("p", {}, r.does),
           h("p", { class: "story-facts-label" }, "At the end of the run"),
           h("ul", { class: "story-facts", "aria-label": "At the end of the run" },
@@ -349,13 +348,13 @@ export function createPanel(root, ctx) {
   function renderMethod() {
     const p = panels.get("method");
     const runsInfo = runList.map((r) => h("li", { dataset: { run: r.id } },
-      h("div", { class: "method-run-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", {}, r.title), r.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null),
+      h("div", { class: "method-run-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", {}, r.title)),
       h("p", {}, r.does), h("p", { class: "muted" }, r.how)));
     const ref = reference;
     const nRuns = inWords(runList.length).toLowerCase();
     const planned = runList.filter((r) => r.source === "plan");
-    // The runs end at different steps where every train arrives early (Neu-Frankfurt's estimate and
-    // optimized run); Köln's both run the full 1,710.
+    // The runs end at different steps where every train arrives early (Neu-Frankfurt's optimized run,
+    // 597 steps, beside its baseline's 1,248); Köln's both run the full 1,710.
     const runSteps = runList.map((r) => ref.runs[r.id].steps);
     const stepsText = runSteps.every((s) => s === runSteps[0])
       ? `at each of the ${count(runSteps[0])} steps of the ${nRuns} runs`
@@ -406,15 +405,12 @@ export function createPanel(root, ctx) {
         : `Zero is out of reach on this map: ${first}. ${best}`;
     }
 
-    // What the page does not do: the planners ran in Python; the leaderboard's figure, where there is one.
+    // What the page does not do: the planner ran in Python; the leaderboard's figure is quoted.
     function limitsText() {
       const who = planned.length === 1 ? "The optimized run's planner does not run in your browser: it ran in Python" : `The ${inWords(planned.length).toLowerCase()} planners do not run in your browser: they ran in Python`;
       const how = planned.length === 1 ? "and the page replays the actions it gave each train" : "and the page replays the actions they gave each train";
-      const time = planned.some((r) => r.id === "estimate") ? " (the estimate's in a few seconds, the optimized run's in a few minutes)" : " (a few minutes of search)";
-      const board = map.leaderboard !== null
-        ? ` The leaderboard's ${count(map.leaderboard)} is a figure from the brief; the estimate is a reconstruction of the kind of solution that scores in that range, not the leaderboard entry's code.`
-        : " The brief gives no leaderboard figure for this map.";
-      return `${who}${time}, ${how}. Malfunctions are off, as in the challenge's runner.${board}`;
+      const board = ` The leaderboard's ${count(map.leaderboard)} is a figure from the brief, which names no map for it; it is quoted here, not simulated.`;
+      return `${who} (a few minutes of search), ${how}. Malfunctions are off, as in the challenge's runner.${board}`;
     }
   }
 
