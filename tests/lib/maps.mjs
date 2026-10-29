@@ -4,7 +4,7 @@
 // tests/fixtures/<id>/ the Python traces and the rules.
 
 export const MAPS = {
-  frankfurt: { id: "frankfurt", file: "neufrankfurt_19agents.json", runs: ["baseline", "estimate", "optimized"] },
+  frankfurt: { id: "frankfurt", file: "neufrankfurt_19agents.json", runs: ["baseline", "optimized"] },
   koeln: { id: "koeln", file: "kk_36agents.json", runs: ["baseline", "optimized"] }
 };
 
@@ -13,8 +13,8 @@ export const MAP_IDS = Object.keys(MAPS);
 /** data/<id>/<file>: the map as the site serves it. */
 export const mapPath = (id) => `data/${id}/${MAPS[id].file}`;
 
-/** The plan a replayed run reads: the estimate's or PlannerController's. */
-export const planPath = (id, run) => `data/${id}/${run === "estimate" ? "estimate_actions" : "planner_actions"}.json`;
+/** The plan the optimized run replays: PlannerController's actions. */
+export const planPath = (id) => `data/${id}/planner_actions.json`;
 
 /** The Python runner's scores for the map. */
 export const referencePath = (id) => `data/${id}/reference.json`;

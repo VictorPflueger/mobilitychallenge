@@ -1,10 +1,15 @@
-// Dispatch Lab in Chromium, end to end: the page boots over http on Neu-Frankfurt, simulates its three
-// runs itself, shows their scores (and the Python runner's are the same), plays them back, and every
-// control does its job exactly once; the map switch does the same for Köln. No request leaves the
-// page's own server, and no console error appears.
-//   boot      scores in the run switch, the comparison and the KPI tiles; no external request
+// Dispatch Lab in Chromium, end to end: the page boots over http on Köln, its default map, and on
+// Neu-Frankfurt (?map=frankfurt), simulates each map's two runs itself, shows their scores (and the
+// Python runner's are the same) beside the leaderboard's current best, plays them back, and every
+// control does its job exactly once; the map switch goes from one map to the other. No request
+// leaves the page's own server, and no console error appears. The cases from playback to failure
+// run on Neu-Frankfurt unless they say otherwise.
+//   boot      on Köln (no ?map=) and on Neu-Frankfurt: exactly the baseline and the optimized run,
+//             their scores in the run switch, the comparison and the KPI tiles, the current best
+//             −37,374 in the comparison, the tile and the score chart; no external request
 //   playback  Play, Pause, speed, step buttons, the timeline, the end of a run
-//   runs      switching runs, their final figures, the address that remembers the moment
+//   runs      the two runs and switching between them, their final figures against the current
+//             best, the address that remembers the map, the run and the step
 //   panel     the tabs by keyboard, the trains table, a train's timetable, the events and a jump
 //             to one, the method
 //   map       views, the legend strip, a train picked on the map
@@ -12,33 +17,45 @@
 //             network, its cells on the drawing's cells in both views, faint in both themes; the
 //             Grid switch hides and shows it, and the browser remembers the choice
 //   guide     opens on a first visit; its seven chapters by Next, Back and the chapter list; the
-//             drawings, the penalties and the four results with the Python runner's scores; a
-//             run's Watch button plays that run with its story beside it
+//             drawings, the penalties and the three results (the two runs with the Python runner's
+//             scores, and the current best from the brief); a run's Watch button plays that run
+//             with its story beside it
 //   story     the Story tab first; a run's moments jump to their step, the map's situation line
-//             (gridlock, waiting trains, all arrived), the way on to the next run
-//   once      the theme toggle and the speed buttons act once per click (vici.js acts on some
-//             controls by itself), the guide closes with Escape, is remembered and reopens
-//   glide     trains move at their own speed (js/glide.js): an S-Bahn at half a cell per step moves
-//             evenly at every quarter step and in every frame while the run plays; a standing
-//             train stays at the centre of its cell
+//             (gridlock, waiting trains, all arrived), the way on to the next run and the scores
+//   once      on the default page: the theme toggle and the speed buttons act once per click
+//             (vici.js acts on some controls by itself), the guide closes with Escape, is
+//             remembered and reopens
+//   glide     trains move at their own speed (js/glide.js): an S-Bahn of the baseline, at half a
+//             cell per step, moves evenly at every quarter step and in every frame while the run
+//             plays; a standing train stays at the centre of its cell
 //   motion    with reduced motion the trains jump from cell to cell (no animation between steps)
-//   failure   a missing data file ends on the boot screen with the reason; a score the Python
-//             runner did not compute raises a banner and loses its "same score" note
-//   maps      the map switch: Köln from the header and back, Köln's runs, scores, tiles, views,
-//             guide and story against the Python runner's; links to a map, a run and a step; an
-//             unknown map or a run the map does not have falls back
+//   failure   on the default page: a missing data file ends on the boot screen with the reason; a
+//             score the Python runner did not compute raises a banner and loses its "same score"
+//             note
+//   maps      the map switch: Köln by default, Neu-Frankfurt from the header and back, Köln's runs,
+//             scores, tiles, views, guide and story against the Python runner's; links to a map, a
+//             run and a step (?map=koeln from before Köln became the default among them), a link
+//             without a map; an unknown map or a run the map does not have falls back
 // Usage: node tests/smoke.mjs [case ...]
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, wanted, NETWORK_NOISE } from "./lib/harness.mjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { traceFacts } from "./lib/trace-facts.mjs";
+import { readJson, traceFacts } from "./lib/trace-facts.mjs";
 import { fixturePath, referencePath } from "./lib/maps.mjs";
 
-const reference = JSON.parse(readFileSync(path.join(APP_ROOT, referencePath("frankfurt")), "utf8"));
+const refs = Object.fromEntries(["frankfurt", "koeln"].map((id) => [id, JSON.parse(readFileSync(path.join(APP_ROOT, referencePath(id)), "utf8"))]));
+const reference = refs.frankfurt;
+// The leaderboard's current best, from the project brief: the same on both maps, not simulated.
+const BEST = -37374;
+const MAP_NAME = { frankfurt: "Neu-Frankfurt", koeln: "Köln" };
 const results = [];
 const check = (ok, what) => { results.push([ok, what]); if (!ok) console.log(`FAIL  ${what}`); };
 // a score to one decimal, halves away from zero, as the page and Python's reports round it
 const fmt = (v) => new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v).replace("-", "−");
+// a difference as the KPI tile shows it: +36,360.0, −28,838.5
+const signedFmt = (v) => `${v > 0 ? "+" : ""}${fmt(v)}`;
+// the trains on the map at a step of a run, as Python traced it
+const onMapInTrace = (map, run, step) => readJson(fixturePath(map, `trace_${run}.json`)).trace[step - 1].pos.filter((p) => p !== null).length;
 
 const browser = await launchBrowser();
 const server = await serveStatic(APP_ROOT, 8765);
@@ -113,32 +130,49 @@ const oklabL = ([r, g, b]) => {
 
 try {
   if (wanted("boot")) {
-    const { context, page, errors, external } = await open();
-    await ready(page);
-    const scores = await page.evaluate(() => Object.fromEntries([...window.dispatchLab.runs].map(([id, r]) => [id, { score: r.score, steps: r.steps }])));
-    check(await page.getAttribute("#tab-story", "aria-selected") === "true", "boot: the panel opens on the Story tab");
-    await page.click("#tab-score");
-    for (const id of ["baseline", "estimate", "optimized"]) {
-      check(scores[id].score === reference.runs[id].reward && scores[id].steps === reference.runs[id].steps,
-        `boot: the browser's ${id} run scores ${scores[id].score} in ${scores[id].steps} steps; the Python runner ${reference.runs[id].reward} in ${reference.runs[id].steps}`);
-      const shown = await text(page, `.run-switch button[data-run="${id}"] .run-score`);
-      check(shown === fmt(reference.runs[id].reward), `boot: the run switch shows ${id} as ${shown}`);
-      const value = await text(page, `.compare-row[data-run="${id}"] .compare-value`);
-      check(value === fmt(reference.runs[id].reward), `boot: the comparison shows ${id} as ${value}`);
+    // Köln without ?map= (the default), then Neu-Frankfurt: on each, exactly the baseline and the
+    // optimized run, with the leaderboard's current best between them.
+    for (const [id, url] of [["koeln", ""], ["frankfurt", "?map=frankfurt"]]) {
+      const ref = refs[id];
+      const name = MAP_NAME[id];
+      const { context, page, errors, external } = await open({ url });
+      await ready(page);
+      const lab = await page.evaluate(() => ({ map: window.dispatchLab.map, runs: Object.fromEntries([...window.dispatchLab.runs].map(([rid, r]) => [rid, { score: r.score, steps: r.steps }])) }));
+      check(lab.map === id, `boot: ${url ? `with ${url}` : "without ?map="} the page opens on ${name} (${lab.map})`);
+      check(JSON.stringify(Object.keys(lab.runs)) === JSON.stringify(["baseline", "optimized"]), `boot: ${name} simulates exactly the baseline and the optimized run (${Object.keys(lab.runs).join(", ")})`);
+      check(await page.getAttribute("#tab-story", "aria-selected") === "true", `boot: ${name}: the panel opens on the Story tab`);
+      await page.click("#tab-score");
+      const switchRuns = await page.$$eval(".run-switch button", (bs) => bs.map((b) => b.dataset.run));
+      check(JSON.stringify(switchRuns) === JSON.stringify(["baseline", "optimized"]), `boot: ${name}: the run switch offers the two runs (${switchRuns.join(", ")})`);
+      for (const rid of ["baseline", "optimized"]) {
+        check(lab.runs[rid].score === ref.runs[rid].reward && lab.runs[rid].steps === ref.runs[rid].steps,
+          `boot: ${name}: the browser's ${rid} run scores ${lab.runs[rid].score} in ${lab.runs[rid].steps} steps; the Python runner ${ref.runs[rid].reward} in ${ref.runs[rid].steps}`);
+        const shown = await text(page, `.run-switch button[data-run="${rid}"] .run-score`);
+        check(shown === fmt(ref.runs[rid].reward), `boot: ${name}: the run switch shows ${rid} as ${shown}`);
+        const value = await text(page, `.compare-row[data-run="${rid}"] .compare-value`);
+        check(value === fmt(ref.runs[rid].reward), `boot: ${name}: the comparison shows ${rid} as ${value}`);
+      }
+      const rows = await page.$$eval(".compare-row", (l) => l.map((r) => r.dataset.run));
+      check(JSON.stringify(rows) === JSON.stringify(["baseline", "leaderboard", "optimized"]) && (await text(page, ".compare .vc-chart__title")) === "Three scores on the same scenario", `boot: ${name}: three scores compared, the current best after the baseline (${rows.join(", ")})`);
+      check(await text(page, '.compare-row[data-run="leaderboard"] .compare-value') === "−37,374" && (await text(page, '.compare-row[data-run="leaderboard"] .compare-note')).includes("not simulated"), `boot: ${name}: the comparison shows the leaderboard's −37,374, not simulated`);
+      check((await page.$$(".compare-note.verified")).length === 2, `boot: ${name}: both runs carry 'same score as the Python runner'`);
+      const chart = await page.evaluate(() => ({ line: !!document.querySelector(".score-chart .chart-ref"), label: document.querySelector(".score-chart .chart-ref-label")?.textContent, legend: [...document.querySelectorAll(".score-chart .vc-legend li")].map((l) => l.textContent) }));
+      check(chart.line && chart.label === "Current best −37,374" && JSON.stringify(chart.legend) === JSON.stringify(["Baseline", "Optimized", "Current best on the leaderboard"]), `boot: ${name}: the score chart draws the current best as its reference line (${chart.label}; ${chart.legend.join(", ")})`);
+      check((await text(page, "#map-run")).startsWith("Optimized"), `boot: ${name}: the optimized run is on screen first`);
+      const gap = ref.runs.optimized.reward - BEST;
+      check(await text(page, ".kpi:has(#kpi-best-value) .kpi-label") === "Final vs. the best" && await text(page, "#kpi-best-value") === signedFmt(gap) && await text(page, "#kpi-best-sub") === `${fmt(ref.runs.optimized.reward)} vs −37,374`,
+        `boot: ${name}: the KPI tile puts the optimized run ${signedFmt(gap)} against the current best (${await text(page, "#kpi-best-value")}, ${await text(page, "#kpi-best-sub")})`);
+      const gone = await page.waitForSelector("#boot", { state: "detached", timeout: 3000 }).then(() => true, () => false);
+      check(gone, `boot: ${name}: the boot screen is gone`);
+      check(!errors.length, `boot: ${name}: no console errors (${errors.join(" | ")})`);
+      check(!external.length, `boot: ${name}: no request left the site (${external.join(", ")})`);
+      await context.close();
     }
-    check(await text(page, '.compare-row[data-run="leaderboard"] .compare-value') === "−37,374", "boot: the comparison shows the leaderboard's −37,374");
-    check((await page.$$(".compare-note.verified")).length === 3, "boot: all three runs carry 'same score as the Python runner'");
-    check((await text(page, "#map-run")).startsWith("Optimized"), "boot: the optimized run is on screen first");
-    check(await text(page, "#kpi-best-value") === "+36,360.0", `boot: the KPI tile puts the optimized run +36,360.0 ahead of the leaderboard (${await text(page, "#kpi-best-value")})`);
-    const gone = await page.waitForSelector("#boot", { state: "detached", timeout: 3000 }).then(() => true, () => false);
-    check(gone, "boot: the boot screen is gone");
-    check(!errors.length, `boot: no console errors (${errors.join(" | ")})`);
-    check(!external.length, `boot: no request left the site (${external.join(", ")})`);
-    await context.close();
   }
 
   if (wanted("playback")) {
-    const { context, page, errors } = await open();
+    const opt = traceFacts("optimized");
+    const { context, page, errors } = await open({ url: "?map=frankfurt" });
     await ready(page);
     await page.click('.speed button:has-text("×16")');
     check(await page.getAttribute('.speed button:has-text("×16")', "aria-pressed") === "true", "playback: ×16 is pressed");
@@ -148,7 +182,7 @@ try {
     const mid = await stepOnScreen(page);
     check(playing === "Playing" && mid > 20, `playback: Play runs the episode (status ${playing}, step ${mid} after 1.5 s at ×16)`);
     const label = await text(page, "#step-label");
-    check(/^Step [\d,]+ of 597$/.test(label), `playback: the step label follows (${label})`);
+    check(new RegExp(`^Step [\\d,]+ of ${reference.runs.optimized.steps.toLocaleString("en-GB")}$`).test(label), `playback: the step label follows (${label})`);
     // Playback started inside a frame whose time stamp lies before the click (the browser stamps a
     // frame before it handles input): time must not run backwards past the first step.
     await page.click("#btn-play");
@@ -193,10 +227,11 @@ try {
     await page.click("#btn-back");
     check(await stepOnScreen(page) === paused - 1, "playback: one step back, twice");
     await page.click("#btn-end");
-    check(await stepOnScreen(page) === 597, "playback: to the last step (597 for the optimized run)");
-    check(await text(page, "#kpi-trains-value") === "19 / 19" && await page.getAttribute(".kpi:has(#kpi-trains-value)", "data-tone") === "resolved", "playback: at the end all 19 trains arrived (success tone)");
-    check(await text(page, "#kpi-stops-value") === "59 / 59", "playback: at the end all 59 stops were served with a stop");
-    check(await text(page, "#kpi-score-value") === "−1,014.0", `playback: the score tile ends at −1,014.0 (${await text(page, "#kpi-score-value")})`);
+    check(await stepOnScreen(page) === opt.steps, `playback: to the last step (${opt.steps} for the optimized run)`);
+    const allIn = opt.arrived === opt.n;
+    check(await text(page, "#kpi-trains-value") === `${opt.arrived} / ${opt.n}` && await page.getAttribute(".kpi:has(#kpi-trains-value)", "data-tone") === (allIn ? "resolved" : "affected"), `playback: at the end ${opt.arrived} of ${opt.n} trains arrived (${allIn ? "success" : "danger"} tone)`);
+    check(await text(page, "#kpi-stops-value") === `${opt.served} / ${opt.stops}`, `playback: at the end ${opt.served} of ${opt.stops} stops were served with a stop`);
+    check(await text(page, "#kpi-score-value") === fmt(reference.runs.optimized.reward), `playback: the score tile ends at ${fmt(reference.runs.optimized.reward)} (${await text(page, "#kpi-score-value")})`);
     check(await text(page, ".status-pill .text") === "Finished", "playback: the status says Finished");
     await page.click("#btn-start");
     check(await stepOnScreen(page) === 0, "playback: back to the first step");
@@ -215,29 +250,35 @@ try {
   }
 
   if (wanted("runs")) {
-    const { context, page, errors } = await open({ url: "?run=estimate&step=900" });
+    const base = traceFacts("baseline");
+    const opt = traceFacts("optimized");
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=baseline&step=900" });
     await ready(page);
-    check((await text(page, "#map-run")).startsWith("Estimate") && await stepOnScreen(page) === 900, "runs: the address opens the estimate at step 900");
-    await page.click('.run-switch button[data-run="baseline"]');
-    check(await page.getAttribute('.run-switch button[data-run="baseline"]', "aria-pressed") === "true" && (await text(page, "#map-run")).startsWith("Baseline"), "runs: Baseline is on screen");
+    check((await text(page, "#map-run")).startsWith("Baseline") && await stepOnScreen(page) === 900, "runs: the address opens Neu-Frankfurt's baseline at step 900");
+    const switchRuns = await page.$$eval(".run-switch button", (bs) => bs.map((b) => [b.dataset.run, b.getAttribute("aria-pressed")]));
+    check(JSON.stringify(switchRuns) === JSON.stringify([["baseline", "true"], ["optimized", "false"]]), `runs: Neu-Frankfurt has exactly the baseline (on screen) and the optimized run (${JSON.stringify(switchRuns)})`);
     await page.click("#btn-end");
-    check(await text(page, "#kpi-score-value") === "−74,022.6", "runs: the baseline ends at −74,022.6");
-    check(await text(page, "#kpi-trains-value") === "7 / 19", `runs: 7 baseline trains arrive (${await text(page, "#kpi-trains-value")})`);
-    await page.click('.run-switch button[data-run="estimate"]');
+    check(await text(page, "#kpi-score-value") === fmt(reference.runs.baseline.reward), `runs: the baseline ends at ${fmt(reference.runs.baseline.reward)}`);
+    check(await text(page, "#kpi-trains-value") === `${base.arrived} / ${base.n}`, `runs: ${base.arrived} baseline trains arrive (${await text(page, "#kpi-trains-value")})`);
+    const baseGap = reference.runs.baseline.reward - BEST;
+    check(await text(page, "#kpi-best-value") === signedFmt(baseGap) && await page.getAttribute(".kpi:has(#kpi-best-value)", "data-tone") === "affected", `runs: the baseline ends ${signedFmt(baseGap)} against the current best (${await text(page, "#kpi-best-value")})`);
+    await page.click('.run-switch button[data-run="optimized"]');
+    check(await page.getAttribute('.run-switch button[data-run="optimized"]', "aria-pressed") === "true" && (await text(page, "#map-run")).startsWith("Optimized"), "runs: Optimized is on screen");
     await page.click("#btn-end");
-    const est = reference.runs.estimate.reward;
-    const gap = est - -37374;
-    check(await text(page, "#kpi-score-value") === fmt(est), `runs: the estimate ends at ${fmt(est)} (${await text(page, "#kpi-score-value")})`);
-    check(await text(page, "#kpi-best-value") === `${gap > 0 ? "+" : ""}${fmt(gap)}`, `runs: the estimate's gap to the leaderboard is ${fmt(gap)} (${await text(page, "#kpi-best-value")})`);
-    check(await text(page, "#kpi-trains-value") === "19 / 19" && await stepOnScreen(page) === reference.runs.estimate.steps, `runs: in the estimate every train arrives, by step ${reference.runs.estimate.steps} (${await text(page, "#kpi-trains-value")})`);
+    const best = reference.runs.optimized.reward;
+    const gap = best - BEST;
+    check(await text(page, "#kpi-score-value") === fmt(best), `runs: the optimized run ends at ${fmt(best)} (${await text(page, "#kpi-score-value")})`);
+    check(await text(page, "#kpi-best-value") === signedFmt(gap) && await page.getAttribute(".kpi:has(#kpi-best-value)", "data-tone") === (gap > 0 ? "resolved" : "affected"), `runs: the optimized run's gap to the current best is ${signedFmt(gap)} (${await text(page, "#kpi-best-value")})`);
+    check(await text(page, "#kpi-trains-value") === `${opt.arrived} / ${opt.n}` && await stepOnScreen(page) === reference.runs.optimized.steps, `runs: in the optimized run ${opt.arrived} of ${opt.n} trains arrive, by step ${reference.runs.optimized.steps} (${await text(page, "#kpi-trains-value")})`);
     await page.waitForTimeout(600);
-    check(new URL(page.url()).searchParams.get("run") === "estimate", "runs: the address remembers the run");
+    const address = new URL(page.url()).searchParams;
+    check(address.get("map") === "frankfurt" && address.get("run") === "optimized" && address.get("step") === String(reference.runs.optimized.steps), `runs: the address remembers the map, the run and the step (?${address})`);
     check(!errors.length, `runs: no console errors (${errors.join(" | ")})`);
     await context.close();
   }
 
   if (wanted("panel")) {
-    const { context, page, errors } = await open({ url: "?run=baseline&step=700" });
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=baseline&step=700" });
     await ready(page);
     // The tabs by keyboard (Vici's tabs: the arrow keys move between them).
     await page.focus("#tab-score");
@@ -271,7 +312,8 @@ try {
   }
 
   if (wanted("map")) {
-    const { context, page, errors } = await open({ url: "?run=optimized&step=250" });
+    const at = Math.min(250, reference.runs.optimized.steps);
+    const { context, page, errors } = await open({ url: `?map=frankfurt&run=optimized&step=${at}` });
     await ready(page);
     const before = await page.getAttribute(".map-svg", "viewBox");
     await page.click('.map-views button:has-text("Around the Hbf")');
@@ -287,7 +329,8 @@ try {
     check(legend.items === 7 && legend.swatches === 5, `map: the legend strip names the five train states and two track symbols (${legend.items} items)`);
     check(legend.gap >= 0, `map: the legend strip lies below the drawing, never over it (${legend.gap.toFixed(1)} px apart)`);
     const shown = await page.$$eval(".train", (els) => els.filter((e) => e.style.display !== "none").length);
-    check(shown === 18, `map: 18 trains on the map at step 250 of the optimized run (${shown})`);
+    const traced = onMapInTrace("frankfurt", "optimized", at);
+    check(shown === traced, `map: ${traced} trains on the map at step ${at} of the optimized run, as in Python's trace (${shown})`);
     const box = await page.$eval('.train:not([style*="none"])', (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: el.dataset.train }; });
     await page.mouse.click(box.x, box.y);
     check(await page.getAttribute(`.train[data-train="${box.id}"]`, "data-selected") === "true" && await page.isVisible(".train-detail"), `map: a click on train ${box.id} picks it`);
@@ -297,7 +340,7 @@ try {
 
   if (wanted("grid")) {
     const before = results.length;
-    const { context, page, errors } = await open({ url: "?run=optimized&step=250" });
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=optimized&step=250" });
     await ready(page);
     const size = () => page.evaluate(() => ({ W: window.dispatchLab.scenario.rail.width, H: window.dispatchLab.scenario.rail.height }));
     const f = await size();
@@ -392,7 +435,7 @@ try {
   }
 
   if (wanted("guide")) {
-    const { context, page, errors } = await open({ intro: true });
+    const { context, page, errors } = await open({ intro: true, url: "?map=frankfurt" });
     await ready(page);
     await page.waitForSelector(".guide-modal", { timeout: 5000 });
     check(await page.isVisible(".guide-modal"), "guide: it opens by itself on a first visit");
@@ -420,20 +463,10 @@ try {
     check(penalties === 7 && (await text(page, ".guide-penalties")).includes("936 × speed"), `guide: chapter 5 lists the seven penalties (${penalties})`);
     await page.click('.guide-nav-btn[data-chapter="results"]');
     const cards = await page.$$eval(".guide-result", (l) => l.map((x) => [x.dataset.run, x.querySelector(".guide-result-score").textContent]));
-    const want = [["baseline", fmt(reference.runs.baseline.reward)], ["best", "−37,374"], ["estimate", fmt(reference.runs.estimate.reward)], ["optimized", fmt(reference.runs.optimized.reward)]];
-    check(JSON.stringify(cards) === JSON.stringify(want), `guide: chapter 6 puts the four results with the Python runner's scores (${cards.map((c) => c.join(" ")).join(", ")})`);
-    check(await page.isVisible('.guide-result[data-run="estimate"] .ai-label'), "guide: the estimate carries the AI label");
-    await page.click('.guide-result[data-run="estimate"] .ai-label');
-    const tip = await page.evaluate(() => {
-      const t = [...document.querySelectorAll(".ai-tip")].find((x) => !x.hidden);
-      if (!t) return { shown: false };
-      const r = t.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(20, r.height / 2));
-      return { shown: true, onTop: t.contains(hit), inDialog: !!t.closest("dialog"), text: t.textContent.slice(0, 60) };
-    });
-    check(tip.shown && tip.onTop && tip.inDialog, `guide: the AI label opens its note on top of the guide (${JSON.stringify(tip)})`);
-    await page.keyboard.press("Escape");
-    check(await page.isVisible(".guide-modal") && !(await page.isVisible(".ai-tip")), "guide: Escape closes the note, and the guide stays open");
+    const want = [["baseline", fmt(reference.runs.baseline.reward)], ["best", "−37,374"], ["optimized", fmt(reference.runs.optimized.reward)]];
+    check(JSON.stringify(cards) === JSON.stringify(want), `guide: chapter 6 puts the three results, the runs with the Python runner's scores (${cards.map((c) => c.join(" ")).join(", ")})`);
+    const bestCard = await page.$eval('.guide-result[data-run="best"]', (c) => ({ source: c.querySelector(".guide-result-source")?.textContent, watch: !!c.querySelector(".guide-watch") }));
+    check(bestCard.source === "From the project brief, not simulated" && !bestCard.watch, `guide: the current best says where it comes from and has nothing to watch (${bestCard.source})`);
     await page.click('.guide-nav-btn[data-chapter="page"]');
     check((await text(page, ".guide-next")).includes("Watch the baseline"), "guide: the last chapter offers to watch the baseline");
     await page.click(".guide-next");
@@ -446,9 +479,10 @@ try {
   }
 
   if (wanted("story")) {
-    const { context, page, errors } = await open({ url: "?run=baseline&step=0" });
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=baseline&step=0" });
     await ready(page);
     const base = traceFacts("baseline");
+    const opt = traceFacts("optimized");
     check(await page.getAttribute("#tab-story", "aria-selected") === "true", "story: the Story tab comes first");
     const kinds = await page.$$eval(".story-moments .moment", (l) => l.map((m) => m.dataset.kind));
     check(kinds.includes("collision") && kinds.includes("gridlock") && kinds[kinds.length - 1] === "end", `story: the baseline's moments run from the first train to the end (${kinds.join(", ")})`);
@@ -460,43 +494,56 @@ try {
     await page.evaluate((s) => window.dispatchLab.seek(s), base.gridlockFrom - 30);
     check(!(await text(page, "#map-situation .sit-long")).startsWith("Gridlock"), "story: before the gridlock, the map does not say gridlock");
     await page.click(".story-next");
-    check((await text(page, "#map-run")).startsWith("Estimate"), "story: the next button moves on to the estimate");
-    const est = traceFacts("estimate");
-    const wait = await text(page, '.moment[data-kind="wait"]');
-    check(wait.includes(`${est.longestWait.wait} steps`), `story: the estimate's longest wait, ${est.longestWait.wait} steps (${wait.slice(0, 90)})`);
-    await page.evaluate(() => window.dispatchLab.seek(100));
-    check(/trains? waits? at (its|their) entry$/.test(await text(page, "#map-situation .sit-long")), `story: at step 100 the map says trains wait at their entry (${await text(page, "#map-situation .sit-long")})`);
-    await page.click(".story-next");
+    check((await text(page, "#map-run")).startsWith("Optimized"), "story: the next button moves on to the optimized run");
+    // The optimized run's longest wait at an entry: a moment of its own from 100 steps on, and the
+    // map's situation line while the train still waits.
+    const w = opt.longestWait;
+    if (w.wait >= 100) {
+      const wait = await text(page, '.moment[data-kind="wait"]');
+      check(wait.includes(`waits ${w.wait} steps at its entry`), `story: the optimized run's longest wait, ${w.wait} steps (${wait.slice(0, 90)})`);
+    } else check(!(await page.$('.moment[data-kind="wait"]')), `story: no train of the optimized run waits 100 steps at its entry (${w.wait} at most), and no moment says so`);
+    if (w.wait >= 1) {
+      const waiting = (opt.entered[w.train] ?? opt.steps + 1) - 1;
+      await page.evaluate((s) => window.dispatchLab.seek(s), waiting);
+      check(/trains? waits? at (its|their) entry$/.test(await text(page, "#map-situation .sit-long")), `story: at step ${waiting} the map says trains wait at their entry (${await text(page, "#map-situation .sit-long")})`);
+    }
     const entered = await page.$eval('.moment[data-kind="enter"]', (b) => b.textContent);
     await page.click('.moment[data-kind="enter"]');
     const ringed = await page.$$eval('.train[data-selected="true"]', (l) => l.map((g) => g.dataset.train));
     check(await page.getAttribute("#tab-story", "aria-selected") === "true" && ringed.length === 1 && await stepOnScreen(page) === Number(entered.match(/Step ([\d,]+)/)[1].replace(/,/g, "")),
       `story: a moment with a train jumps to its step and rings the train on the map, and the story stays (train ${ringed.join(", ")})`);
-    await page.click('.moment[data-kind="all-arrived"]');
-    check(await text(page, "#map-situation .sit-long") === "All 19 trains have arrived" && await page.getAttribute("#map-situation", "data-tone") === "success", "story: in the optimized run the map says when all trains have arrived");
+    if (opt.arrived === opt.n) {
+      await page.click('.moment[data-kind="all-arrived"]');
+      check(await text(page, "#map-situation .sit-long") === `All ${opt.n} trains have arrived` && await page.getAttribute("#map-situation", "data-tone") === "success", "story: in the optimized run the map says when all trains have arrived");
+    }
+    check(await text(page, ".story-next") === "Compare all three scores", `story: the last run's story leads on to the scores (${await text(page, ".story-next")})`);
     await page.click(".story-next");
-    check(await page.getAttribute("#tab-score", "aria-selected") === "true", "story: after the optimized run, the next button compares all scores");
+    check(await page.getAttribute("#tab-score", "aria-selected") === "true", "story: after the optimized run, the next button compares all three scores");
     check(!errors.length, `story: no console errors (${errors.join(" | ")})`);
     await context.close();
   }
 
   if (wanted("glide")) {
-    // The estimate run, in which no train ever halts: S-Bahn 17 runs at half a cell per step. On a
-    // straight stretch it must move an eighth of a cell every quarter step, and while the run plays
-    // at ×1 it must move in every frame (drawn from cell to cell it held still every other step).
-    const { context, page, errors } = await open({ url: "?run=estimate" });
+    // The baseline, whose S-Bahn 17 runs at half a cell per step without halting for a long
+    // stretch early on. On a straight part of it the train must move an eighth of a cell every
+    // quarter step, and while the run plays at ×1 it must move in every frame (drawn from cell to
+    // cell it held still every other step).
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=baseline" });
     await ready(page);
     const sb = await page.evaluate(() => {
       const at = (i) => { const m = document.querySelector(`.train[data-train="${i}"]`).getAttribute("transform").match(/translate\(([-\d.]+) ([-\d.]+)\)/); return [Number(m[1]), Number(m[2])]; };
       const lab = window.dispatchLab;
-      const run = lab.runs.get("estimate");
-      const { n, pos } = run.frames;
+      const run = lab.runs.get("baseline");
+      const { n, pos, state, speed } = run.frames;
       const W = lab.scenario.rail.width;
-      // the first step from which train 17's next six cells lie in one row or one column
+      // train 17 moving at half a cell per step, on the map since the step before
+      const half = (u) => u >= 1 && u <= run.steps && pos[u * n + 17] >= 0 && pos[(u - 1) * n + 17] >= 0 && state[u * n + 17] === 3 && speed[u * n + 17] === 0.5;
+      // the first step from which it runs so from two steps before to sixteen after (the ×1 play
+      // below lasts at most ten steps), its cells over the next four steps in one row or one column
       let from = -1;
-      for (let t = 1; t + 6 <= run.steps && from < 0; t += 1) {
-        const cells = [0, 1, 2, 3, 4, 5, 6].map((k) => pos[(t + k) * n + 17]);
-        if (cells.some((c) => c < 0)) continue;
+      for (let t = 3; t + 16 <= run.steps && from < 0; t += 1) {
+        if (!Array.from({ length: 19 }, (_, k) => t - 2 + k).every(half)) continue;
+        const cells = [0, 1, 2, 3, 4].map((k) => pos[(t + k) * n + 17]);
         if (cells.every((c) => Math.floor(c / W) === Math.floor(cells[0] / W)) || cells.every((c) => c % W === cells[0] % W)) from = t;
       }
       const pts = [];
@@ -553,7 +600,7 @@ try {
   }
 
   if (wanted("motion")) {
-    const { context, page, errors } = await open({ url: "?run=baseline&step=40", reducedMotion: "reduce" });
+    const { context, page, errors } = await open({ url: "?map=frankfurt&run=baseline&step=40", reducedMotion: "reduce" });
     await ready(page);
     await page.click("#btn-play");
     let fractional = false;
@@ -572,18 +619,19 @@ try {
   }
 
   if (wanted("failure")) {
-    server.blockLocal.add("/data/frankfurt/reference.json");
+    // On the default page, Köln's.
+    server.blockLocal.add("/data/koeln/reference.json");
     const { context, page } = await open();
     await page.waitForSelector('#boot[data-state="failed"]', { timeout: 20000 });
     const detail = await text(page, "#boot-detail");
-    check(/reference\.json: HTTP 404/.test(detail) && await page.isVisible(".boot-help"), `failure: a missing data file ends on the boot screen with the reason (${detail})`);
-    server.blockLocal.delete("/data/frankfurt/reference.json");
+    check(/data\/koeln\/reference\.json: HTTP 404/.test(detail) && await page.isVisible(".boot-help"), `failure: a missing data file ends on the boot screen with the reason (${detail})`);
+    server.blockLocal.delete("/data/koeln/reference.json");
     await context.close();
     // A Python score the engine does not reproduce: the page says so instead of claiming a match.
     const wrong = await open();
-    const altered = JSON.parse(JSON.stringify(reference));
-    altered.runs.estimate.reward += 1;
-    await wrong.context.route(/\/data\/frankfurt\/reference\.json$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(altered) }));
+    const altered = JSON.parse(JSON.stringify(refs.koeln));
+    altered.runs.baseline.reward += 1;
+    await wrong.context.route(/\/data\/koeln\/reference\.json$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(altered) }));
     await wrong.page.reload();
     await ready(wrong.page);
     await wrong.page.click("#tab-score");
@@ -591,36 +639,33 @@ try {
     const bannerText = banner ? await text(wrong.page, ".banner") : "";
     const notes = await wrong.page.$$eval(".compare-note.verified", (els) => els.map((e) => e.closest(".compare-row")?.dataset.run));
     check(banner && /differs from the Python runner/.test(bannerText), `failure: a score that differs from the Python runner's raises a banner (${bannerText.slice(0, 60)})`);
-    check(notes.length === 2 && !notes.includes("estimate"), `failure: the estimate then loses "same score as the Python runner" (${notes.join(", ")})`);
+    check(JSON.stringify(notes) === JSON.stringify(["optimized"]), `failure: the baseline then loses "same score as the Python runner", and the optimized run keeps it (${notes.join(", ")})`);
     await wrong.context.close();
   }
   if (wanted("maps")) {
-    const kRef = JSON.parse(readFileSync(path.join(APP_ROOT, referencePath("koeln")), "utf8"));
-    const kRules = JSON.parse(readFileSync(path.join(APP_ROOT, fixturePath("koeln", "rules.json")), "utf8"));
+    const kRef = refs.koeln;
     const before = results.length;
+    // Köln is the default: the page without ?map= opens it.
     const { context, page, errors, external } = await open();
     await ready(page);
     const buttons = await page.$$eval("#map-switch button", (bs) => bs.map((b) => [b.dataset.map, b.textContent, b.getAttribute("aria-pressed")]));
-    check(JSON.stringify(buttons) === JSON.stringify([["frankfurt", "Neu-Frankfurt", "true"], ["koeln", "Köln", "false"]]), `maps: the header offers Neu-Frankfurt (on screen) and Köln (${JSON.stringify(buttons)})`);
-    // Köln from the header: its page loads with the run on screen kept.
-    await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
-    await ready(page);
-    const url = new URL(page.url());
-    check(url.searchParams.get("map") === "koeln" && url.searchParams.get("run") === "optimized", `maps: Köln loads its own page, keeping the optimized run (${url.search})`);
+    check(JSON.stringify(buttons) === JSON.stringify([["frankfurt", "Neu-Frankfurt", "false"], ["koeln", "Köln", "true"]]), `maps: without ?map= the header offers Neu-Frankfurt and Köln, Köln on screen (${JSON.stringify(buttons)})`);
     const k = await page.evaluate(() => ({ map: window.dispatchLab.map, runs: Object.fromEntries([...window.dispatchLab.runs].map(([id, r]) => [id, { score: r.score, steps: r.steps }])) }));
-    check(k.map === "koeln" && JSON.stringify(Object.keys(k.runs)) === JSON.stringify(["baseline", "optimized"]), `maps: Köln has its two runs, the baseline and the optimized run (${Object.keys(k.runs).join(", ")})`);
+    check(k.map === "koeln" && JSON.stringify(Object.keys(k.runs)) === JSON.stringify(["baseline", "optimized"]), `maps: the default page is Köln's, with its two runs, the baseline and the optimized run (${k.map}: ${Object.keys(k.runs).join(", ")})`);
+    await page.waitForTimeout(600);
+    const first = new URL(page.url());
+    check(first.searchParams.get("map") === "koeln" && first.searchParams.get("run") === "optimized" && first.searchParams.get("step") === "0", `maps: the address names the default map too, with its run and step (${first.search})`);
     for (const id of ["baseline", "optimized"]) {
       check(k.runs[id].score === kRef.runs[id].reward && k.runs[id].steps === kRef.runs[id].steps, `maps: Köln's ${id} scores ${k.runs[id].score} in ${k.runs[id].steps} steps in the browser; the Python runner ${kRef.runs[id].reward} in ${kRef.runs[id].steps}`);
       const shown = await text(page, `.run-switch button[data-run="${id}"] .run-score`);
       check(shown === fmt(kRef.runs[id].reward), `maps: the run switch shows Köln's ${id} as ${shown}`);
     }
-    check(await page.getAttribute('#map-switch button[data-map="koeln"]', "aria-pressed") === "true" && (await text(page, "#brand-sub")).endsWith("Köln, 36 trains"), `maps: the header marks Köln and says so (${await text(page, "#brand-sub")})`);
-    check((await page.$$(".run-switch button")).length === 2 && !(await page.$('.run-switch button[data-run="estimate"]')), "maps: no estimate on Köln");
-    const floorGap = kRef.runs.optimized.reward + kRules.floor.total;
-    check(await text(page, ".kpi:has(#kpi-best-value) .kpi-label") === "Final vs. best possible" && await text(page, "#kpi-best-value") === fmt(floorGap), `maps: Köln's tile measures the run against the best possible score, −${kRules.floor.total} (${await text(page, "#kpi-best-value")})`);
+    check((await text(page, "#brand-sub")).endsWith("Köln, 36 trains"), `maps: the header says Köln (${await text(page, "#brand-sub")})`);
+    const kGap = kRef.runs.optimized.reward - BEST;
+    check(await text(page, ".kpi:has(#kpi-best-value) .kpi-label") === "Final vs. the best" && await text(page, "#kpi-best-value") === signedFmt(kGap), `maps: Köln's tile measures the run against the current best, −37,374, as Neu-Frankfurt's does (${await text(page, "#kpi-best-value")})`);
     await page.click("#tab-score");
     const rows = await page.$$eval(".compare-row", (l) => l.map((r) => r.dataset.run));
-    check(JSON.stringify(rows) === JSON.stringify(["baseline", "optimized"]) && (await text(page, ".compare .vc-chart__title")) === "Two scores on the same scenario", `maps: Köln's scores compared, no leaderboard figure (${rows.join(", ")})`);
+    check(JSON.stringify(rows) === JSON.stringify(["baseline", "leaderboard", "optimized"]) && await text(page, '.compare-row[data-run="leaderboard"] .compare-value') === "−37,374", `maps: Köln's scores compared with the current best (${rows.join(", ")})`);
     check((await page.$$(".compare-note.verified")).length === 2, "maps: both Köln runs carry 'same score as the Python runner'");
     const before0 = await page.getAttribute(".map-svg", "viewBox");
     await page.click('.map-views button:has-text("Around Stop 14")');
@@ -629,14 +674,16 @@ try {
     const labels = await page.$$eval(".map-labels .station-label", (l) => l.map((x) => x.textContent));
     check(["Essen", "Frankfurt"].every((n) => labels.includes(n)), `maps: Köln's map names its stations (${labels.join(", ")})`);
     await page.click("#tab-method");
-    check((await text(page, "#panel-method")).includes("data/maps/kk_36agents.json"), "maps: the method names Köln's file");
-    // The guide on Köln: Köln's figures and its two results, and Watch plays the run.
+    const method = await text(page, "#panel-method");
+    check(method.includes("data/maps/kk_36agents.json"), "maps: the method names Köln's file");
+    check(method.includes("The leaderboard's −37,374 is a figure from the project brief, not simulated here: the page shows it on both maps as the target to beat."), "maps: the method says where the current best comes from");
+    // The guide on Köln: Köln's figures, its two runs and the current best, and Watch plays a run.
     await page.click("#btn-about");
     await page.waitForSelector(".guide-modal");
     check((await text(page, ".guide-title")).includes("36 trains"), `maps: the guide on Köln starts with its 36 trains (${await text(page, ".guide-title")})`);
     await page.click('.guide-nav-btn[data-chapter="results"]');
     const cards = await page.$$eval(".guide-result", (l) => l.map((x) => [x.dataset.run, x.querySelector(".guide-result-score").textContent]));
-    check(JSON.stringify(cards) === JSON.stringify([["baseline", fmt(kRef.runs.baseline.reward)], ["optimized", fmt(kRef.runs.optimized.reward)]]), `maps: the guide's results on Köln are its two runs with the Python runner's scores (${cards.map((c) => c.join(" ")).join(", ")})`);
+    check(JSON.stringify(cards) === JSON.stringify([["baseline", fmt(kRef.runs.baseline.reward)], ["best", "−37,374"], ["optimized", fmt(kRef.runs.optimized.reward)]]), `maps: the guide's results on Köln are its two runs with the Python runner's scores and the current best (${cards.map((c) => c.join(" ")).join(", ")})`);
     await page.click('.guide-watch[data-run="baseline"]');
     await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
     check((await text(page, "#map-run")).startsWith("Baseline") && await text(page, ".status-pill .text") === "Playing", "maps: Watch the gridlock plays Köln's baseline");
@@ -649,25 +696,39 @@ try {
     check(await text(page, "#map-situation .sit-long") === `Gridlock since step ${kb.gridlockFrom}: ${kb.stuck} trains stuck for good`, `maps: on Köln the map says when it jams (${await text(page, "#map-situation .sit-long")})`);
     check(!errors.length, `maps: no console errors on Köln (${errors.join(" | ")})`);
     check(!external.length, `maps: no request left the site (${external.join(", ")})`);
-    // Back to Neu-Frankfurt: the default map needs no parameter, and the run stays.
+    // Neu-Frankfurt from the header: its own page, named in the address, with the run kept.
     await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="frankfurt"]')]);
     await ready(page);
+    const there = new URL(page.url());
+    check(there.searchParams.get("map") === "frankfurt" && there.searchParams.get("run") === "baseline" && await page.evaluate(() => window.dispatchLab.map) === "frankfurt" && (await text(page, "#map-run")).startsWith("Baseline"), `maps: Neu-Frankfurt from the header (?map=frankfurt), with the baseline kept (${there.search})`);
+    check(await page.getAttribute('#map-switch button[data-map="frankfurt"]', "aria-pressed") === "true" && (await text(page, "#brand-sub")).endsWith("Neu-Frankfurt, 19 trains"), `maps: the header marks Neu-Frankfurt and says so (${await text(page, "#brand-sub")})`);
+    // And back to Köln: named in the address as well.
+    await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
+    await ready(page);
     const back = new URL(page.url());
-    check(!back.searchParams.has("map") && back.searchParams.get("run") === "baseline" && await page.evaluate(() => window.dispatchLab.map) === "frankfurt" && (await text(page, "#map-run")).startsWith("Baseline"), `maps: Neu-Frankfurt from the header, with the baseline kept (${back.search})`);
+    check(back.searchParams.get("map") === "koeln" && back.searchParams.get("run") === "baseline" && await page.evaluate(() => window.dispatchLab.map) === "koeln", `maps: back to Köln from the header (?map=koeln), with the baseline kept (${back.search})`);
     await context.close();
-    // Links: a map, a run and a step; a run the map does not have; an unknown map.
-    const link = await open({ url: "?map=koeln&run=baseline&step=400" });
-    await ready(link.page);
-    check(await link.page.evaluate(() => window.dispatchLab.map) === "koeln" && (await text(link.page, "#map-run")).startsWith("Baseline") && await stepOnScreen(link.page) === 400, "maps: a link opens Köln's baseline at step 400");
-    await link.context.close();
-    const noEst = await open({ url: "?map=koeln&run=estimate" });
-    await ready(noEst.page);
-    check((await text(noEst.page, "#map-run")).startsWith("Optimized"), "maps: a run Köln does not have opens its optimized run instead");
-    await noEst.context.close();
-    const unknown = await open({ url: "?map=atlantis" });
-    await ready(unknown.page);
-    check(await unknown.page.evaluate(() => window.dispatchLab.map) === "frankfurt", "maps: an unknown map opens Neu-Frankfurt");
-    await unknown.context.close();
+    // Links: a map, a run and a step, on either map (?map=koeln as shared before Köln became the
+    // default); a link without a map; a run the map does not have; an unknown map.
+    const links = [
+      ["?map=koeln&run=baseline&step=400", "koeln", "Baseline", 400, "a link from before Köln became the default opens Köln's baseline at step 400"],
+      ["?map=frankfurt&run=baseline&step=600", "frankfurt", "Baseline", 600, "a link opens Neu-Frankfurt's baseline at step 600"],
+      ["?run=baseline&step=300", "koeln", "Baseline", 300, "a link without a map opens the default one, Köln, at the run and step it names"],
+      ["?map=frankfurt&run=leaderboard", "frankfurt", "Optimized", 0, "a run the map does not have (the leaderboard's figure is not one) opens its optimized run instead"],
+      ["?map=atlantis", "koeln", "Optimized", 0, "an unknown map opens the default one, Köln"]
+    ];
+    for (const [url, map, run, step, what] of links) {
+      const l = await open({ url });
+      await ready(l.page);
+      const got = { map: await l.page.evaluate(() => window.dispatchLab.map), run: await text(l.page, "#map-run"), step: await stepOnScreen(l.page) };
+      check(got.map === map && got.run.startsWith(run) && got.step === step, `maps: ${what} (${url}: ${got.map}, ${got.run.split(":")[0]}, step ${got.step})`);
+      if (map !== new URLSearchParams(url).get("map")) {
+        await l.page.waitForTimeout(600);
+        const named = new URL(l.page.url()).searchParams.get("map");
+        check(named === map, `maps: the address then names the map on screen (${url} → map=${named})`);
+      }
+      await l.context.close();
+    }
     if (results.slice(before).every(([ok]) => ok)) console.log("MAPS_SWITCH_OK");
   }
 } finally {

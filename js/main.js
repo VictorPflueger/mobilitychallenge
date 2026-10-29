@@ -1,7 +1,7 @@
-// Dispatch Lab: boots the page. Loads the map the address asks for (?map=koeln; Neu-Frankfurt by
-// default) with its recorded plans, simulates its runs in the browser (the engine scores them),
-// checks the scores against the Python runner's, then builds the header, controls, map and panel and
-// plays the runs back. The map switch in the header loads the other map.
+// Dispatch Lab: boots the page. Loads the map the address asks for (?map=frankfurt or ?map=koeln;
+// Köln by default) with its recorded plan, simulates its runs in the browser (the engine scores
+// them), checks the scores against the Python runner's, then builds the header, controls, map and
+// panel and plays the runs back. The map switch in the header loads the other map.
 
 import { $, h } from "./dom.js";
 import { icon } from "./icons.js";
@@ -40,13 +40,11 @@ async function start() {
   const map = mapFromSearch(location.search);
   document.documentElement.dataset.map = map.id;
   say(`Loading ${map.name}…`);
-  // The map, the Python runner's scores, and the plans its replayed runs read.
-  const planFile = (id) => (id === "estimate" ? "estimate_actions.json" : "planner_actions.json");
-  const replayed = map.runs.filter((id) => id !== "baseline");
-  const [mapData, reference, ...plans] = await Promise.all([
+  // The map, the Python runner's scores, and the plan the optimized run replays.
+  const [mapData, reference, plan] = await Promise.all([
     fetchJson(dataPath(map, map.file)),
     fetchJson(dataPath(map, "reference.json")),
-    ...replayed.map((id) => fetchJson(dataPath(map, planFile(id))))
+    fetchJson(dataPath(map, "planner_actions.json"))
   ]);
   const scenario = loadScenario(mapData);
   const network = describe(mapData, map);
@@ -54,11 +52,9 @@ async function start() {
 
   const runs = new Map();
   const verified = new Map();
-  const planOf = new Map(replayed.map((id, k) => [id, plans[k]]));
   const controllers = {
     baseline: () => new OrderedController(),
-    estimate: () => new ReplayController(planOf.get("estimate"), "estimate"),
-    optimized: () => new ReplayController(planOf.get("optimized"), "optimized")
+    optimized: () => new ReplayController(plan, "optimized")
   };
   const runList = RUNS.filter((r) => map.runs.includes(r.id));
   for (const r of runList) {
@@ -75,8 +71,8 @@ async function start() {
     showBanner("danger", "A score differs from the Python runner's", "The engine in this browser computed a score that the challenge's Python runner did not. The figures on this page may be wrong.");
   }
 
-  // What every part of the page compares against: the leaderboard's figure where the map has one,
-  // and the floor no dispatcher can beat (js/floor.js).
+  // What every part of the page compares against: the leaderboard's figure (js/maps.js), and the
+  // floor no dispatcher can beat (js/floor.js).
   const floor = scoreFloor(scenario, balancedPenalties(scenario.maxSteps));
   build({ map, runList, scenario, network, runs, verified, reference, floor });
 }
@@ -209,14 +205,14 @@ function build(ctx) {
   }
   function togglePlay() { if (state.playing) pause(); else play(); }
 
-  // The run and step on screen live in the address, so a moment can be shared as a link.
+  // The map, run and step on screen live in the address, so a moment can be shared as a link
+  // (?map=koeln&run=baseline&step=600). The map is always named, also on the default one.
   let rememberTimer = 0;
   function remember() {
     clearTimeout(rememberTimer);
     rememberTimer = setTimeout(() => {
-      const p = new URLSearchParams(location.search);
-      p.set("run", state.run);
-      p.set("step", String(Math.floor(state.t)));
+      const p = new URLSearchParams({ map: map.id, run: state.run, step: String(Math.floor(state.t)) });
+      for (const [key, value] of new URLSearchParams(location.search)) if (!p.has(key)) p.append(key, value);
       history.replaceState(null, "", `${location.pathname}?${p}`);
     }, 400);
   }
@@ -236,18 +232,17 @@ function build(ctx) {
 
 /**
  * The map switch in the header: one button per map, the one on screen pressed. Another map loads
- * that map's page (its runs are simulated afresh); the run on screen stays if the other map has it.
+ * that map's page, its address naming the map (?map=frankfurt, ?map=koeln); its runs are simulated
+ * afresh, and the run on screen stays if the other map has it.
  */
 function buildMapSwitch(root, current, currentRun) {
   for (const m of MAPS) {
     const b = h("button", { type: "button", "aria-pressed": String(m.id === current.id), dataset: { map: m.id } }, m.name);
     b.addEventListener("click", () => {
       if (m.id === current.id) return;
-      const p = new URLSearchParams();
-      if (m.id !== MAPS[0].id) p.set("map", m.id);
+      const p = new URLSearchParams({ map: m.id });
       if (m.runs.includes(currentRun())) p.set("run", currentRun());
-      const query = p.toString();
-      location.assign(`${location.pathname}${query ? `?${query}` : ""}`);
+      location.assign(`${location.pathname}?${p}`);
     });
     root.appendChild(b);
   }

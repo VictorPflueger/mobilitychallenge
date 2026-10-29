@@ -73,10 +73,9 @@ const stopName = (network, i, k) => network.stationName(network.trains[i].stops[
 
 /**
  * The moments worth watching in a run, in order: [{ step, kind, train, title, text }]. Steps are the
- * ones the timeline shows; train is the train to pick (or null). why.wait, when given, says why
- * trains wait at their entry in this run (the estimate: its whole route has to be free).
+ * ones the timeline shows; train is the train to pick (or null).
  */
-export function moments(run, scenario, network, facts = runFacts(run, scenario), why = {}) {
+export function moments(run, scenario, network, facts = runFacts(run, scenario)) {
   const out = [];
   const firstEvent = (kind) => run.events.find((e) => e.kind === kind);
 
@@ -130,9 +129,7 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario),
       step: Math.min(w.entered ?? facts.steps, facts.steps), kind: "wait", train: w.train, title: "The longest wait",
       text: w.entered === null
         ? `${trainName(network, w.train)} could have set off at step ${count(w.ready + 1)}, but never enters the network.`
-        : why.wait
-          ? `${trainName(network, w.train)} could have set off at step ${count(w.ready + 1)}, but ${why.wait} only from step ${count(w.entered)}: it waits ${plural(w.wait, "step")} at its entry.`
-          : `${trainName(network, w.train)} could have set off at step ${count(w.ready + 1)} and enters at step ${count(w.entered)}: it waits ${plural(w.wait, "step")} at its entry.`
+        : `${trainName(network, w.train)} could have set off at step ${count(w.ready + 1)} and enters at step ${count(w.entered)}: it waits ${plural(w.wait, "step")} at its entry.`
     });
   }
 

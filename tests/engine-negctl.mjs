@@ -1,9 +1,9 @@
 // Negative controls for tests/engine.mjs: the parity check must fail when the engine is wrong.
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
-// function, either plan, the distance map or the score breakdown) and the parity check must report
-// a difference. The unchanged engine must pass first, so a failure is the check's doing, not a
-// broken harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops,
-// which start on their destination's cell and must be finished as they enter.
+// function, the plan, the distance map or the score breakdown) and the parity check must report a
+// difference. The unchanged engine must pass first, so a failure is the check's doing, not a broken
+// harness. Köln gets its own: its plan, its penalty scale (1,710 steps) and its S-Bahn loops, which
+// start on their destination's cell and must be finished as they enter.
 // Usage: node tests/engine-negctl.mjs
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -31,14 +31,14 @@ function expectDifference(what, run) {
   results.push([!r.ok, `${what}: ${r.ok ? "NOT detected" : `detected (${r.message || `distance map of trains ${r.bad.join(", ")}`})`}`]);
 }
 
-// Positive control: the unchanged engine passes Neu-Frankfurt's three runs and its distance map.
-for (const name of ["baseline", "estimate", "optimized"]) {
+// Positive control: the unchanged engine passes Neu-Frankfurt's two runs and its distance map.
+for (const name of ["baseline", "optimized"]) {
   const r = parity(name);
   results.push([r.ok, `unchanged engine, ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
 }
 const dm = distanceMapParity();
 results.push([dm.ok, `unchanged engine, distance map: ${dm.ok ? "passes" : "FAILS"}`]);
-for (const name of ["baseline", "estimate", "optimized"]) {
+for (const name of ["baseline", "optimized"]) {
   const r = termsParity(name);
   results.push([r.ok, `unchanged page, the score breakdown of ${name}: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
 }
@@ -52,9 +52,9 @@ for (const name of ["baseline", "optimized"]) {
 const dmK = distanceMapParity({ map: "koeln" });
 results.push([dmK.ok, `unchanged engine, Köln distance map: ${dmK.ok ? "passes" : "FAILS"}`]);
 
-// Train dynamics: braking and acceleration, each checked across Neu-Frankfurt's three runs (the
+// Train dynamics: braking and acceleration, each checked across Neu-Frankfurt's two runs (the
 // baseline never brakes, so a run that does must catch it).
-const anyRun = (options) => ["baseline", "estimate", "optimized"].map((n) => parity(n, options)).find((r) => !r.ok) || { ok: true };
+const anyRun = (options) => ["baseline", "optimized"].map((n) => parity(n, options)).find((r) => !r.ok) || { ok: true };
 expectDifference("braking 0.4 per step instead of 0.5", () => anyRun({ env: { brakingDelta: -0.4 } }));
 expectDifference("acceleration 0.25 per step instead of 0.3", () => anyRun({ env: { accelerationDelta: 0.25 } }));
 
@@ -111,13 +111,22 @@ expectDifference("one action of the plan changed", () => parity("optimized", {
   }
 }));
 
-// The estimate's plan: one train enters the network a step earlier than booked.
-expectDifference("one train of the estimate enters a step early", () => parity("estimate", {
-  mutatePlan: (plan) => {
-    const enter = plan.actions.findIndex((a, t) => t > 0 && a[2] !== 0); // train 2 waits longest at its entry
-    plan.actions[enter - 1][2] = plan.actions[enter][2];
-  }
-}));
+// The plan's timing: the train that waits longest at its entry enters the network a step earlier
+// than planned. Python's trace gives the step it first stands on the map; the action at the step
+// before that one put it there.
+expectDifference("one train of the plan enters a step early", () => {
+  const data = readJson(mapPath("frankfurt"));
+  const rows = (({ initial, trace }) => [initial, ...trace])(readJson(fixturePath("frankfurt", "trace_optimized.json")));
+  const waits = data["flatland timetable"].earliest_departures.map((ed, i) => {
+    const entered = rows.findIndex((row) => row.pos[i] !== null);
+    return { train: i, entered, wait: entered - (Math.max(ed[0], 1) + 1) };
+  }).filter((w) => w.entered > 0).sort((a, b) => b.wait - a.wait);
+  const w = waits[0];
+  if (!w || w.wait < 1) return { ok: true, message: "no train waits at its entry" };
+  return parity("optimized", {
+    mutatePlan: (plan) => { plan.actions[w.entered - 2][w.train] = plan.actions[w.entered - 1][w.train]; }
+  });
+});
 
 // The distance map: one reachable value off by one.
 expectDifference("one distance-map value off by one", () => distanceMapParity({

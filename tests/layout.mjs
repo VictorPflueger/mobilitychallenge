@@ -4,32 +4,33 @@
 // switch, inside the map's panel) and the legend never cover each other or the drawing, station
 // names never cover each other and stay on screen, and every control is large enough to hit: 40 × 40
 // px at least (WCAG 2.5.8 asks 24; projector use asks more), 44 px for the main ones. Each viewport
-// is checked at five moments of a run (the start of the
-// optimized run with its story, the baseline in its gridlock, the estimate with trains waiting at
-// their entry, the estimate at its end with a train's timetable open, and the view around the Hbf
-// with a train picked), and at four on Köln (its optimized run at the start, its baseline in the
-// gridlock, its optimized run with trains held off the network, the view around Stop 14 with a train
-// picked); then in each of the guide's seven chapters, on both maps: the dialog inside the window,
-// nothing in a chapter wider than the chapter (no sideways scrolling), its drawings' labels large
-// enough to read (10 px at least) and its buttons large enough to hit.
+// is checked at five moments of a run on Neu-Frankfurt (the start of the optimized run with its
+// story, the baseline in its gridlock, the optimized run with trains waiting at their entry, the
+// optimized run at its end with a train's timetable open, and the view around the Hbf with a train
+// picked), and at four on Köln (its optimized run at the start, as the page opens without ?map=, its
+// baseline in the gridlock, its optimized run with trains held off the network, the view around
+// Stop 14 with a train picked); then in each of the guide's seven chapters, on both maps: the dialog
+// inside the window, nothing in a chapter wider than the chapter (no sideways scrolling), its
+// drawings' labels large enough to read (10 px at least) and its buttons large enough to hit.
 // Usage: node tests/layout.mjs [viewport ...]   (e.g. 1280x720)
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, ONLY, outDir } from "./lib/harness.mjs";
 import path from "node:path";
 
 const VIEWPORTS = [[1920, 1080], [1600, 900], [1536, 864], [1366, 768], [1280, 720], [1024, 768], [768, 1024], [390, 844], [320, 640]];
-// mustName: a station whose name has to be on the map in that state.
+// mustName: a station whose name has to be on the map in that state. A step past a run's end shows
+// its last step.
 const STATES = [
-  { name: "optimized at the start, its story", url: "?run=optimized&step=0", situation: false, mustName: "Hbf" },
-  { name: "baseline in its gridlock", url: "?run=baseline&step=600", situation: "Gridlock", mustName: "Hbf" },
-  { name: "estimate with trains waiting at their entry", url: "?run=estimate&step=100", situation: "wait at their entry", mustName: "Hbf" },
-  { name: "estimate at the end, a timetable open", url: "?run=estimate&step=1248", mustName: "Hbf", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="3"] .train-pick'); } },
-  { name: "around the Hbf, a train picked", url: "?run=baseline&step=700", mustName: "Hbf", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } },
-  { name: "Köln, optimized at the start", url: "?map=koeln&run=optimized&step=0", situation: false, mustName: "Essen" },
+  { name: "optimized at the start, its story", url: "?map=frankfurt&run=optimized&step=0", situation: false, mustName: "Hbf" },
+  { name: "baseline in its gridlock", url: "?map=frankfurt&run=baseline&step=600", situation: "Gridlock", mustName: "Hbf" },
+  { name: "optimized with trains waiting at their entry", url: "?map=frankfurt&run=optimized&step=100", situation: "wait at their entry", mustName: "Hbf" },
+  { name: "optimized at the end, a timetable open", url: "?map=frankfurt&run=optimized&step=1248", mustName: "Hbf", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="3"] .train-pick'); } },
+  { name: "around the Hbf, a train picked", url: "?map=frankfurt&run=baseline&step=700", mustName: "Hbf", act: async (page) => { await page.click('.map-views button:has-text("Around the Hbf")'); await page.click("#tab-trains"); await page.click('tr[data-train="11"] .train-pick'); } },
+  { name: "Köln, optimized at the start (no ?map=)", url: "", situation: false, mustName: "Essen" },
   { name: "Köln, baseline in its gridlock", url: "?map=koeln&run=baseline&step=600", situation: "Gridlock", mustName: "Essen" },
   { name: "Köln, optimized with trains held off", url: "?map=koeln&run=optimized&step=600", situation: "wait at their entry", mustName: "Essen" },
   { name: "Köln, around Stop 14, a train picked", url: "?map=koeln&run=baseline&step=150", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); await page.click("#tab-trains"); await page.click('tr[data-train="16"] .train-pick'); } }
 ];
-const GUIDES = [{ map: "frankfurt", url: "?run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }];
+const GUIDES = [{ map: "frankfurt", url: "?map=frankfurt&run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }];
 
 const chosen = VIEWPORTS.filter(([w, h]) => !ONLY.length || ONLY.includes(`${w}x${h}`));
 const failures = [];

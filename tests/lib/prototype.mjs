@@ -31,10 +31,8 @@ export const COLOUR_PAIRS = [
   ["The selected train's ring on the canvas", "text", "bg-sunken", "mark"],
   // The runs' series colours (Vici's chart palette) on the panel, the tracks and the control bar.
   ["Baseline series (bars, lines, swatches) on panels", "data-8", "surface", "mark"],
-  ["Estimate series on panels", "data-5", "surface", "mark"],
   ["Optimized series on panels", "data-2", "surface", "mark"],
   ["Baseline bar on its track", "data-8", "bg-subtle", "mark"],
-  ["Estimate bar on its track", "data-5", "bg-subtle", "mark"],
   ["Optimized bar on its track", "data-2", "bg-subtle", "mark"],
   ["The leaderboard's dashed bar and reference line", "text-muted", "surface", "mark"],
   ["Chart axis labels", "chart-axis", "surface", "text"],
@@ -95,9 +93,7 @@ export const COLOUR_PAIRS = [
  * The test reports how far apart they stay under colour-vision deficiency; it does not fail on them.
  */
 export const SEPARATIONS = [
-  ["Runs: baseline vs estimate", "data-8", "data-5"],
   ["Runs: baseline vs optimized", "data-8", "data-2"],
-  ["Runs: estimate vs optimized", "data-5", "data-2"],
   ["Trains: on time (ink) vs blocked (its danger fill)", "text", "danger-border"],
   ["Trains: behind (warning fill) vs blocked (danger fill)", "warning-border", "danger-border"],
   ["Trains: on time (ink) vs behind (its warning fill)", "text", "warning-border"],
@@ -106,10 +102,11 @@ export const SEPARATIONS = [
 
 /**
  * The hexagon test's tour of the app (tests/hexagon.mjs): its main states, the dialogs and views on
- * the way. The page has just been opened without SKIP_INTRO, so the guide opens by itself: all seven
- * chapters, the AI label's note in it, and the guide on a phone (the pieces drawing with numbered
- * markers and a key, the timetable in blocks). Then the runs with their story and situation line,
- * and Köln from the map switch: its runs, its story, its middle view and its guide.
+ * the way. The page has just been opened without SKIP_INTRO and without ?map=, so it shows Köln, the
+ * default map, and the guide opens by itself: all seven chapters, and the guide on a phone (the
+ * pieces drawing with numbered markers and a key, the timetable in blocks). Then Köln's runs with
+ * their story and situation line, and Neu-Frankfurt from the map switch: its runs, its story, its
+ * middle view and its guide.
  * visit(name, { settle }) checks the page as it is, settle ms (250) after the step.
  */
 export async function hexagonTour(page, visit) {
@@ -120,10 +117,6 @@ export async function hexagonTour(page, visit) {
     await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
     await visit(`the guide: ${id}`);
   }
-  await page.click('.guide-nav-btn[data-chapter="results"]');
-  await page.click('.guide-result[data-run="estimate"] .ai-label');
-  await visit("the guide: the AI label's note");
-  await page.keyboard.press("Escape");
   const size = page.viewportSize();
   await page.setViewportSize({ width: 360, height: 740 });
   for (const id of ["network", "timetable", "score", "results"]) {
@@ -133,55 +126,54 @@ export async function hexagonTour(page, visit) {
   await page.setViewportSize(size);
   await page.keyboard.press("Escape");
   await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
-  await visit("optimized run at the start, its story");
+  await visit("Köln: optimized run at the start, its story");
   await page.click("#btn-play");
   await page.waitForTimeout(1200);
   await page.click("#btn-play");
-  await visit("optimized run after playing");
+  await visit("Köln: optimized run after playing");
   await page.click('.run-switch button[data-run="baseline"]');
   await page.evaluate(() => window.dispatchLab.seek(600));
-  await visit("baseline at step 600: gridlock, its story");
+  await visit("Köln: baseline at step 600: gridlock, its story");
   await page.click('.moment[data-kind="collision"]');
-  await visit("a story moment picked: its train ringed");
-  await page.click('.map-views button:nth-child(2)');
-  await visit("around the Hbf");
-  await page.click("#tab-trains");
-  await page.click('tr[data-train="11"] .train-pick');
-  await visit("a train's timetable");
-  await page.click("#tab-events");
-  await visit("events");
-  await page.click("#tab-method");
-  await visit("method");
-  await page.evaluate(() => document.querySelector(".method-symbols").scrollIntoView());
-  await visit("method: reading the map");
-  await page.click('.run-switch button[data-run="estimate"]');
-  await page.evaluate(() => window.dispatchLab.seek(100));
-  await page.click("#tab-score");
-  await visit("estimate at step 100 (trains waiting at their entry)");
-  await page.click(".compare-row[data-run='estimate'] .ai-label");
-  await visit("the AI label's note");
-  await page.keyboard.press("Escape");
-  await page.click("#btn-end");
-  await page.click("#tab-story");
-  await visit("estimate at the end, its story");
-  // Köln, from the map switch in the header.
-  await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="koeln"]')]);
-  await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
-  await visit("Köln: optimized run at the start, its story");
-  await page.click('.run-switch button[data-run="baseline"]');
-  await page.evaluate(() => window.dispatchLab.seek(600));
-  await visit("Köln: baseline at step 600, gridlock");
+  await visit("Köln: a story moment picked: its train ringed");
   await page.click('.moment[data-kind="at-target"]');
   await visit("Köln: a train done as it enters, picked");
   await page.click('.map-views button:nth-child(2)');
   await visit("Köln: around Stop 14");
+  await page.click("#tab-trains");
+  await page.click('tr[data-train="11"] .train-pick');
+  await visit("Köln: a train's timetable");
+  await page.click("#tab-events");
+  await visit("Köln: events");
+  await page.click("#tab-method");
+  await visit("Köln: method");
+  await page.evaluate(() => document.querySelector(".method-symbols").scrollIntoView());
+  await visit("Köln: method: reading the map");
+  await page.click('.run-switch button[data-run="optimized"]');
+  await page.evaluate(() => window.dispatchLab.seek(100));
   await page.click("#tab-score");
-  await visit("Köln: the scores, no leaderboard");
+  await visit("Köln: optimized run at step 100 (trains waiting at their entry), the scores and the current best");
+  await page.click("#btn-end");
+  await page.click("#tab-story");
+  await visit("Köln: optimized run at the end, its story");
+  // Neu-Frankfurt, from the map switch in the header.
+  await Promise.all([page.waitForNavigation(), page.click('#map-switch button[data-map="frankfurt"]')]);
+  await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
+  await visit("Neu-Frankfurt: optimized run at the start, its story");
+  await page.click('.run-switch button[data-run="baseline"]');
+  await page.evaluate(() => window.dispatchLab.seek(600));
+  await visit("Neu-Frankfurt: baseline at step 600, gridlock");
+  await page.click('.moment[data-kind="collision"]');
+  await visit("Neu-Frankfurt: a story moment picked: its train ringed");
+  await page.click('.map-views button:nth-child(2)');
+  await visit("Neu-Frankfurt: around the Hbf");
+  await page.click("#tab-score");
+  await visit("Neu-Frankfurt: the scores and the current best");
   await page.click("#btn-about");
   await page.waitForSelector(".guide-modal", { timeout: 5000 });
   for (const id of ["challenge", "score", "results"]) {
     await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
-    await visit(`Köln: the guide: ${id}`);
+    await visit(`Neu-Frankfurt: the guide: ${id}`);
   }
   await page.keyboard.press("Escape");
 }

@@ -9,10 +9,6 @@ a crash, a delay at the target, a stop not served, ...), so tests/engine.mjs can
 engine, and the score breakdown the page shows, with flatland number for number.
 
   baseline   OrderedController, the challenge's default (tree observation, depth 2)
-  estimate   tools/estimate_planner.py, the estimate of the current best (routes booked, stops
-             skipped), run live; its actions must equal data/frankfurt/estimate_actions.json, which
-             the page replays (tools/check_estimate.py writes that file and checks the run).
-             Neu-Frankfurt only
   optimized  the actions in data/<map>/planner_actions.json (PlannerController's plan, see
              check_plan.py), replayed by a controller that never sees the environment
 
@@ -209,10 +205,6 @@ def run(tbsim, map_id, scenario):
     if scenario == 'baseline':
         from controller.orderedcontroller import OrderedController
         ctrl = OrderedController()
-    elif scenario == 'estimate':
-        from estimate_planner import EstimatePlanner
-        ctrl = EstimatePlanner(env)
-        estimate_plan = json.load(open(site_data(map_id, 'estimate_actions.json')))
     else:
         plan = json.load(open(site_data(map_id, 'planner_actions.json')))
         ctrl = Replay(plan['actions'])
@@ -242,8 +234,6 @@ def run(tbsim, map_id, scenario):
     if scenario == 'optimized':
         assert rec.actions == plan['actions'][:len(rec.actions)] and len(rec.actions) == len(plan['actions']), 'replay diverged'
         assert plan['map_sha256'] == hashlib.sha256(open(MAP, 'rb').read()).hexdigest(), 'the plan was made on another map'
-    if scenario == 'estimate':
-        assert rec.actions == estimate_plan['actions'], 'data/frankfurt/estimate_actions.json is not what EstimatePlanner does'
     return {
         'scenario': scenario,
         'map': os.path.basename(MAP),
@@ -405,7 +395,7 @@ def main():
     ap.add_argument('--repo', required=True, help='checkout of the challenge repository (with its .venv)')
     ap.add_argument('--check', action='store_true', help='rebuild and compare with tests/fixtures/ instead of writing')
     ap.add_argument('--map', choices=list(MAPS), help='one map only (default: every map)')
-    ap.add_argument('--only', choices=('baseline', 'estimate', 'optimized'), help='one run only')
+    ap.add_argument('--only', choices=('baseline', 'optimized'), help='one run only')
     args = ap.parse_args()
     repo = os.path.abspath(args.repo)
     tbsim = load_runner(repo)

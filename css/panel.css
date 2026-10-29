@@ -19,7 +19,7 @@
 .vc-chart__title { font-family: var(--vc-font-display); font-weight: var(--vc-weight-semibold); font-size: var(--fs-lg); letter-spacing: var(--vc-tracking-heading); color: var(--vc-text); line-height: 1.2; }
 .vc-chart__subtitle { color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); }
 
-/* ---- the four scores ------------------------------------------------------------------------------ */
+/* ---- the map's scores ----------------------------------------------------------------------------- */
 .compare-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .compare-list > li { margin: 0; }
 .compare-list > li::before { display: none; }

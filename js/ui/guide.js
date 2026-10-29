@@ -8,10 +8,8 @@ import { h, clear } from "../dom.js";
 import { icon } from "../icons.js";
 import { openModal } from "../modal.js";
 import { chapters, guideFacts } from "../guide-content.js";
-import { ESTIMATE_NOTE } from "../runs.js";
 import { networkDiagram, piecesDiagram, conflictScenes } from "./diagrams.js";
 import { trainSwatch } from "./map.js";
-import { aiLabel } from "./ailabel.js";
 
 const KEY = "dl.guideSeen";
 
@@ -115,7 +113,6 @@ export function openGuide(ctx, { chapter = 0, onWatch } = {}) {
               h("div", { class: "guide-result-head" },
                 h("span", { class: "run-swatch", "aria-hidden": "true" }),
                 h("strong", {}, c.name),
-                c.ai ? aiLabel(ESTIMATE_NOTE.title, ESTIMATE_NOTE.text) : null,
                 h("span", { class: "guide-result-score" }, c.score)),
               c.source ? h("p", { class: "guide-result-source" }, c.source) : null,
               bar,

@@ -2,10 +2,10 @@
 // speeds, stations, stops, grid, crossings, the example timetable and its line), the challenge's
 // penalty rules as its own Python code sets them and the floor no dispatcher can beat, computed on
 // flatland's own rail (tests/fixtures/<map>/rules.json, written by tools/export_fixtures.py and
-// tools/score_floor.py), and the runs as the Python runner traced them (tests/lib/trace-facts.mjs):
+// tools/score_floor.py), the runs as the Python runner traced them (tests/lib/trace-facts.mjs):
 // when each penalty is booked, trains turning round at Neu-Frankfurt's Hauptbahnhof, Köln's trains
-// done as they enter and the trains its planner leaves out. Each figure must also appear in the
-// guide's text as stated.
+// done as they enter and the trains its planner leaves out; and the leaderboard's figure from the
+// project brief, the same on both maps. Each figure must also appear in the guide's text as stated.
 // Usage: node tests/guide.mjs [frankfurt|koeln]
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
@@ -33,13 +33,29 @@ function setup(id) {
   const scenario = loadScenario(data);
   const network = describe(data, map);
   const runList = RUNS.filter((r) => map.runs.includes(r.id));
-  const runs = new Map(runList.map((r) => [r.id, simulate(scenario, r.id === "baseline" ? new OrderedController() : new ReplayController(readJson(planPath(id, r.id)), r.id))]));
+  const runs = new Map(runList.map((r) => [r.id, simulate(scenario, r.id === "baseline" ? new OrderedController() : new ReplayController(readJson(planPath(id)), r.id))]));
   const F = guideFacts({ map, runList, scenario, network, runs });
   const text = chapters(F).map((c) => [c.nav, c.title, c.lead, JSON.stringify(c.blocks)].join(" ")).join(" ");
   const py = Object.fromEntries(runList.map((r) => [r.id, traceFacts(r.id, data, id)]));
   const says = (str, what) => check(text.includes(str), `${id}: the guide says "${str}" (${what})`);
   const traces = Object.fromEntries(runList.map((r) => [r.id, readJson(fixturePath(id, `trace_${r.id}.json`))]));
   return { id, map, data, rules, scenario, network, runList, runs, F, text, py, says, traces };
+}
+
+// The leaderboard's current best, as the project brief gives it (October 2026): not simulated, and
+// shown on both maps as the target to beat.
+const BRIEF_BEST = -37374;
+
+/** On every map: the brief's figure, where it comes from, and the results it stands among. */
+function checkLeaderboard({ id, F, runList, says }) {
+  check(F.leaderboard === BRIEF_BEST, `${id}: the guide measures the runs against the brief's ${fmt(BRIEF_BEST)} (${F.leaderboard})`);
+  says(`The best score on the challenge's leaderboard (October 2026) is ${fmt(BRIEF_BEST)}: the target to beat`, "the leaderboard's best in the first chapter");
+  says(`The best on the leaderboard: ${fmt(BRIEF_BEST)}`, "the leaderboard's best in the score chapter");
+  says("as the project brief gives it", "where the figure comes from");
+  says("the page shows it on both maps as the target to beat", "the same figure on both maps");
+  says("From the project brief, not simulated", "the figure is not simulated");
+  check(runList.length === 2, `${id}: two runs, the baseline and the optimized run (${runList.map((r) => r.id).join(", ")})`);
+  says("Three results", "three results: the two runs and the leaderboard's figure");
 }
 
 function checkFrankfurt({ data, rules, network, F, text, py, says, traces }) {
@@ -121,7 +137,7 @@ check(F.accel === rules.acceleration_delta && F.brake === -rules.braking_delta, 
 says(`a train gains ${rules.acceleration_delta} of a cell per step`, "speeding up");
 says(`braking takes ${-rules.braking_delta} off per step`, "braking");
 // A collision: booked once, when a moving train is brought to a halt without being told to stop.
-for (const name of ["baseline", "estimate", "optimized"]) {
+for (const name of Object.keys(traces)) {
   const fx = traces[name];
   const rows = [fx.initial, ...fx.trace];
   const booked = new Set(fx.terms.filter((x) => x[2] === "collision").map((x) => `${x[0]}:${x[1]}`));
@@ -156,7 +172,7 @@ check(-py.optimized.score >= rules.floor.total, `the optimized run (${py.optimiz
 for (const x of slowest) check(-py.optimized.perTrain[x.i] >= x.v, `${data.schedules[x.i].name} loses ${-py.optimized.perTrain[x.i]} in the optimized run, at least its floor ${x.v}`);
 
 // When points count: a collision at once, a train's stops and delay when it arrives (or at the end).
-for (const name of ["baseline", "estimate", "optimized"]) {
+for (const name of Object.keys(traces)) {
   const fx = traces[name];
   const f = py[name];
   const wrong = fx.terms.filter(([step, agent, kind]) => kind !== "collision" && step !== (f.arrival[agent] ?? f.steps));
@@ -168,7 +184,7 @@ says("A collision counts at once. A train's stops and its delay count when it re
 // The Hauptbahnhof is a terminus: trains that call there turn round on its platforms.
 const hbf = new Set(data.stations.filter((x) => x.id === 1).map((x) => `${x.r},${x.c}`));
 const turners = new Set();
-for (const name of ["baseline", "estimate", "optimized"]) {
+for (const name of Object.keys(traces)) {
   const fx = traces[name];
   const rows = [fx.initial, ...fx.trace];
   for (let t = 1; t < rows.length; t += 1) {
@@ -182,32 +198,24 @@ check(turners.size >= 5, `trains turn round on the Hauptbahnhof's platforms in t
 says("the Hauptbahnhof is a terminus, so trains that call there reverse", "reversing at the Hbf");
 says(`serves none of the ${stops} stops still loses ${fmt(stops * P.intermediate_not_served_penalty, 1)} points`, "all stops lost");
 says(`${fmt(Math.round(P.intermediate_not_served_penalty))} steps late`, "a stop against a late arrival");
-says(fmt(-37374), "the leaderboard's best");
 
 // The runs, as the Python runner traced them.
 const b = py.baseline;
-const e = py.estimate;
 const o = py.optimized;
 says(`${b.collisions} collisions. From step ${b.gridlockFrom} on, ${b.stuck} trains block each other`, "the baseline's collisions and gridlock");
 says(`${b.arrived} of ${b.n} trains arrive`, "the baseline's arrivals");
 check(b.served === 0, "the baseline serves no stop");
 says("not a single stop is served", "the baseline's stops");
 says(fmt(b.score, 1), "the baseline's score");
-check(e.arrived === e.n && e.collisions === 0 && e.gridlockFrom === null, `the estimate: every train arrives (${e.arrived}), no collision (${e.collisions}), no gridlock`);
-says(`all ${e.n} trains arrive. All ${e.stops} stops are lost (${fmt(e.passed * P.intermediate_not_served_penalty, 1)} points)`, "the estimate's stops");
-says(`up to ${e.longestWait.wait} steps at their entry`, "the estimate's longest wait");
-says(`${fmt(e.lateSteps)} steps late in all`, "the estimate's late arrivals");
-says(fmt(e.score, 1), "the estimate's score");
 says(`All ${o.n} trains arrive by step ${o.lastArrival} and all ${o.served} stops are served`, "the optimized run");
 says(fmt(o.score, 1), "the optimized score");
-// The two S-Bahns: their trip at full speed through all their stations (the estimate drives exactly
-// that, without halting) takes longer than their timetable allows; they carry nearly all of the
-// optimized run's points.
-const sb = data.schedules.map((s, i) => i).filter((i) => classes.get(data.schedules[i].trainClassId).name === "S-Bahn");
-const tight = sb.filter((i) => e.arrival[i] - e.entered[i] > e.timetables[i].la - e.timetables[i].ed);
-check(JSON.stringify(tight) === JSON.stringify(F.tight), `S-Bahns whose trip is longer than their timetable allows: ${tight.join(", ")} (guide: ${F.tight.join(", ")})`);
-const sbPoints = -tight.reduce((s, i) => s + o.perTrain[i], 0);
-says(`${fmt(sbPoints)} of the ${fmt(-o.score)} points left come from the two S-Bahns`, "the S-Bahns' share of the optimized run");
+// The two S-Bahns the floor holds back (flatland's rail, above): their trip at full speed through all
+// their stations, without halting, takes longer than their timetable allows; they carry nearly all
+// of the optimized run's points.
+const slowSBahns = slowest.map((x) => x.i);
+check(JSON.stringify(slowSBahns) === JSON.stringify(F.slowSBahns), `S-Bahns too slow for their timetables on flatland's rail: ${slowSBahns.join(", ")} (guide: ${F.slowSBahns.join(", ")})`);
+const sbPoints = -slowSBahns.reduce((s, i) => s + o.perTrain[i], 0);
+says(`${fmt(sbPoints)} of the ${fmt(-o.score)} points left come from the two S-Bahns ${slowSBahns.map((i) => data.schedules[i].name.replace(/_/g, " ")).join(" and ")}: even at full speed their trip takes longer than their timetable allows`, "the S-Bahns' share of the optimized run");
 }
 
 function checkKoeln({ data, rules, network, F, text, py, says, traces }) {
@@ -343,10 +351,6 @@ function checkKoeln({ data, rules, network, F, text, py, says, traces }) {
   says(`No dispatcher can score better than −${amt(rules.floor.total)}`, "the floor");
   check(-py.optimized.score >= rules.floor.total, `koeln: the optimized run (${py.optimized.score}) does not beat the floor (−${rules.floor.total})`);
 
-  // No leaderboard figure for Köln.
-  check(!text.includes("leaderboard (October 2026)") && F.leaderboard === null, "koeln: the guide quotes no leaderboard figure for Köln");
-  says("The brief gives no leaderboard figure for this map", "no leaderboard figure");
-
   // The runs, as the Python runner traced them.
   const b = py.baseline;
   const o = py.optimized;
@@ -363,11 +367,14 @@ function checkKoeln({ data, rules, network, F, text, py, says, traces }) {
   says(`no plan without conflicts for ${left.length} trains: they never set off, which costs ${amt(leftPoints)} of the ${amt(-o.score)} points`, "the trains the planner leaves out");
   says(fmt(o.score, 1), "the optimized score");
   says("From gridlock to a network without collisions", "the results' title");
-  says("Two results", "two results, no leaderboard card");
 }
 
 const maps = process.argv.slice(2).length ? process.argv.slice(2) : MAP_IDS;
-for (const id of maps) (id === "koeln" ? checkKoeln : checkFrankfurt)(setup(id));
+for (const id of maps) {
+  const s = setup(id);
+  (id === "koeln" ? checkKoeln : checkFrankfurt)(s);
+  checkLeaderboard(s);
+}
 
 for (const [ok, what] of results) console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);
 const failed = results.filter(([ok]) => !ok).length;

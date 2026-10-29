@@ -8,11 +8,10 @@
  *      (Play), the focus ring. It never encodes a state.
  *   2. Danger, warning and success are the trains' outcomes: blocked and lost (danger), behind the
  *      timetable (warning), on time and served (success). Every state also differs in form.
- *   3. Lilac, Vici's feature tone, is the AI's voice: the estimate is Claude's reconstruction.
- *   4. Fjord, the info tone, is checking: the score's match with the Python runner.
- *   5. Each run keeps one series colour from Vici's chart palette: the baseline the baselines'
- *      grey, the estimate lilac, the optimized run teal.
- *   6. Ink carries everything else. The tape (--vc-text and --vc-surface stripes, always with the
+ *   3. Fjord, the info tone, is checking: the score's match with the Python runner.
+ *   4. Each run keeps one series colour from Vici's chart palette: the baseline the baselines'
+ *      grey, the optimized run teal.
+ *   5. Ink carries everything else. The tape (--vc-text and --vc-surface stripes, always with the
  *      word SIMULATION) says that these trains are simulated, not real operations.
  */
 
@@ -24,9 +23,8 @@
   --fs-kpi: 2.125rem;
   /* The smallest target for what the room clicks: 44 px. */
   --hit: 44px;
-  /* The three runs' series colours (Vici's categorical chart palette). */
+  /* The two runs' series colours (Vici's categorical chart palette). */
   --run-baseline: var(--vc-data-8);
-  --run-estimate: var(--vc-data-5);
   --run-optimized: var(--vc-data-2);
   /* The lines of the grid under the map: ink at 7 % on the canvas, an equally faint step in both
      themes (about 0.05 in OKLab lightness). Vici's border-subtle, the honeycomb's line, would step

@@ -9,7 +9,7 @@
 const VICI = {
   play: "play", restart: "refresh", back: "chevron-left", forward: "chevron-right", info: "info",
   close: "close", x: "close", flag: "flag", check: "check", warning: "warning", error: "error", success: "success",
-  clock: "clock", chart: "chart-line", spark: "sparkle", globe: "globe-hex", external: "external",
+  clock: "clock", chart: "chart-line", globe: "globe-hex", external: "external",
   list: "layers", hub: "honeycomb", pin: "pin", up: "chevron-up", down: "chevron-down", code: "code",
   arrowUp: "arrow-up", more: "more", book: "book", map: "layout", eye: "eye", users: "users"
 };

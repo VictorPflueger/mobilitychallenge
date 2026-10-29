@@ -29,7 +29,7 @@ export function amount(v) {
   return UPTO2.format(Math.abs(roundTo(v, 2)));
 }
 
-/** A signed difference: +36,360.0 or −4,885.2. */
+/** A signed difference: +1,234.5 or −36,648.6; ±0.0 for none. */
 export function signed(v) {
   const r = roundTo(v, 1);
   if (r === 0) return "±0.0";

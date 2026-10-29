@@ -12,8 +12,8 @@ SITE = os.path.dirname(HERE)
 
 MAPS = {
     # The challenge's default map: the runner loads it (src/tbrain-simulation.py).
-    'frankfurt': {'file': 'neufrankfurt_19agents.json', 'runs': ('baseline', 'estimate', 'optimized')},
-    # The larger map of the challenge's final (36 trains); no estimate of a leaderboard entry here.
+    'frankfurt': {'file': 'neufrankfurt_19agents.json', 'runs': ('baseline', 'optimized')},
+    # The larger map of the challenge's final (36 trains); the page opens on it.
     'koeln': {'file': 'kk_36agents.json', 'runs': ('baseline', 'optimized')},
 }
 
