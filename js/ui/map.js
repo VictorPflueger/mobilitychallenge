@@ -52,7 +52,20 @@ function viewsOf(map, rail) {
   };
 }
 
-export function createMap(root, { map, scenario, network, onSelect }) {
+/**
+ * The hatch of a broken-down train (malfunctions on): diagonal stripes in a marker's own units, so
+ * they keep their spacing at any marker size (css/map.css colours them). One hidden SVG holds it for
+ * the map, the legend, the Method tab and the guide.
+ */
+export function hatchDefs() {
+  return svg("svg", { class: "svg-defs", "aria-hidden": "true", focusable: "false" },
+    svg("defs", {},
+      svg("pattern", { id: "dl-hatch", patternUnits: "userSpaceOnUse", width: 0.42, height: 0.42, patternTransform: "rotate(45)" },
+        svg("rect", { class: "hatch-ground", x: 0, y: 0, width: 0.42, height: 0.42 }),
+        svg("rect", { class: "hatch-stripe", x: 0, y: 0, width: 0.17, height: 0.42 }))));
+}
+
+export function createMap(root, { map, scenario, network, onSelect, malfunctions = false }) {
   const rail = scenario.rail;
   const W = rail.width;
   const H = rail.height;
@@ -120,7 +133,7 @@ export function createMap(root, { map, scenario, network, onSelect }) {
     h("div", { class: "cap-line" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", { id: "map-run" }, "")),
     h("div", { class: "cap-sub", id: "map-sub" }, ""),
     situationLine);
-  const legend = buildLegend();
+  const legend = buildLegend(malfunctions);
   const viewButtons = new Map();
   const views = h("div", { class: "segmented map-views", role: "group", "aria-label": "Map view" },
     Object.entries(VIEWS).map(([id, v]) => {
@@ -135,7 +148,8 @@ export function createMap(root, { map, scenario, network, onSelect }) {
   const tools = h("div", { class: "map-tools" }, views, h("div", { class: "segmented map-grid-switch" }, gridButton));
   root.dataset.map = map.id;
   root.dataset.grid = gridOn ? "on" : "off";
-  root.append(grid, view, caption, tools, legend);
+  root.dataset.malfunctions = malfunctions ? "on" : "off";
+  root.append(hatchDefs(), grid, view, caption, tools, legend);
 
   /** Shows or hides the grid, and remembers the choice in this browser. */
   function setGrid(on) {
@@ -394,7 +408,7 @@ export function trackGlyph(kind) {
  * The legend: a strip under the map that is always there and never covers it (the map's drawing
  * area ends above it). Short names; the Method tab explains each symbol in full.
  */
-function buildLegend() {
+function buildLegend(malfunctions) {
   const item = (glyph, text) => h("li", { class: "legend-item" }, glyph, h("span", {}, text));
   return h("section", { class: "map-legend", "aria-label": "Legend" },
     h("ul", { class: "legend-items" },
@@ -403,6 +417,7 @@ function buildLegend() {
       item(trainSwatch("ontime", "standing"), "Standing"),
       item(trainSwatch("blocked", "moving"), "Blocked"),
       item(trainSwatch("blocked", "standing"), "Stuck"),
+      malfunctions ? item(trainSwatch("broken", "standing"), "Broken down") : null,
       h("li", { class: "legend-sep", "aria-hidden": "true" }),
       item(trackGlyph("platform"), "Platforms"),
       item(trackGlyph("buffer"), "Buffer stop")));

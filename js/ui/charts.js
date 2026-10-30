@@ -13,9 +13,10 @@ export const inWords = (n) => WORDS[n] || count(n);
 
 /**
  * The map's scores as bars of lost points (a longer bar is a worse score): its runs, and the
- * leaderboard's figure after the baseline. ctx: { map, runList }.
+ * leaderboard's figure after the baseline. ctx: { map, runList, malfunctions }; with malfunctions on,
+ * the runs' scores are theirs with malfunctions and the captions say so (the leaderboard's is without).
  */
-export function comparison(runs, { map, runList, selected, verified, onPick }) {
+export function comparison(runs, { map, runList, selected, verified, onPick, malfunctions = { on: false } }) {
   const rows = runList.map((r) => ({ id: r.id, value: runs.get(r.id).score }));
   rows.splice(1, 0, { id: "leaderboard", value: map.leaderboard });
   const max = Math.max(...rows.map((r) => Math.abs(r.value)));
@@ -34,7 +35,7 @@ export function comparison(runs, { map, runList, selected, verified, onPick }) {
       ? (verified.get(r.id)
         ? h("span", { class: "compare-note verified" }, icon("check", 14), "same score as the Python runner")
         : h("span", { class: "compare-note" }, "simulated in your browser"))
-      : h("span", { class: "compare-note" }, "the leaderboard's figure, from the project brief; not simulated");
+      : h("span", { class: "compare-note" }, `the leaderboard's figure, from the project brief; not simulated${malfunctions.on ? "; without malfunctions" : ""}`);
     list.appendChild(h("li", { class: "compare-row", dataset: { run: r.id, selected: String(selected === r.id) } },
       h("div", { class: "compare-head" }, head),
       h("div", { class: "compare-track" }, bar),
@@ -43,7 +44,7 @@ export function comparison(runs, { map, runList, selected, verified, onPick }) {
   }
   return h("figure", { class: "vc-chart compare" },
     h("figcaption", {}, h("span", { class: "vc-chart__title" }, `${inWords(rows.length)} scores on the same scenario`),
-      h("span", { class: "vc-chart__subtitle" }, `Points lost on ${map.file.replace(/\.json$/, "")}; a shorter bar is better`)),
+      h("span", { class: "vc-chart__subtitle" }, `Points lost on ${map.file.replace(/\.json$/, "")}${malfunctions.on ? `, the runs with malfunctions (seed ${malfunctions.seed})` : ""}; a shorter bar is better`)),
     list);
 }
 

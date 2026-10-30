@@ -5,7 +5,9 @@
 /* Vici's tabs at today's size (44 px, 1rem), on the panel's head. */
 .panel-tabs.vc-tabs__list { border-bottom: 0; gap: 4px; }
 .panel-tabs.vc-tabs__list > [role="tab"] { min-height: var(--hit); padding: 0 14px; font-size: var(--vc-font-size-md); font-weight: var(--vc-weight-semibold); }
-.panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* The body scrolls; it is also the containing block of what is positioned inside it, so a visually
+   hidden table caption far down a tab stays inside it instead of making the page itself scroll. */
+.panel-body { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .panel-section { padding: 14px 16px 22px; display: grid; gap: 14px; align-content: start; }
 .panel-section > * { min-width: 0; }
 .panel-section[hidden] { display: none; }
@@ -111,7 +113,7 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
 .train-badge.big { width: calc(40px * 1.1547); height: 40px; font-size: 1.05rem; }
 .train-status { white-space: nowrap; }
 .train-status[data-tone="late"] { color: var(--vc-warning-text); font-weight: var(--vc-weight-semibold); }
-.train-status[data-tone="blocked"], .train-status[data-tone="lost"] { color: var(--vc-danger-text); font-weight: var(--vc-weight-semibold); }
+.train-status[data-tone="blocked"], .train-status[data-tone="lost"], .train-status[data-tone="broken"] { color: var(--vc-danger-text); font-weight: var(--vc-weight-semibold); }
 .train-status[data-tone="done"] { color: var(--vc-success-text); font-weight: var(--vc-weight-semibold); }
 .train-status[data-tone="waiting"] { color: var(--vc-text-subtle); }
 .trains .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -144,6 +146,8 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
 .event-text strong { color: var(--vc-text); font-weight: var(--vc-weight-semibold); }
 .event .train-badge { width: calc(22px * 1.1547); height: 22px; font-size: 0.7rem; }
 .event-row[data-tone="lost"] .event { border-left-color: var(--vc-danger-solid); }
+/* A breakdown (malfunctions on): the danger stripe, hatched like the broken-down train on the map. */
+.event-row[data-tone="broken"] .event { border-left-color: var(--vc-danger-solid); border-left-style: dashed; }
 .event-row[data-tone="late"] .event { border-left-color: var(--vc-warning-text); }
 .event-row[data-tone="ok"] .event { border-left-color: var(--vc-success-solid); }
 
@@ -198,7 +202,7 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
 .moment:hover { background: var(--vc-bg-subtle); }
 .moment:focus-visible { outline: 2px solid var(--vc-focus); outline-offset: 2px; }
 .moment[data-state="current"] { box-shadow: inset 0 0 0 2px var(--vc-text); }
-.moment[data-kind="collision"], .moment[data-kind="gridlock"], .moment[data-kind="pass"], .moment[data-kind="at-target"] { --_tone: var(--vc-danger-solid); }
+.moment[data-kind="collision"], .moment[data-kind="gridlock"], .moment[data-kind="pass"], .moment[data-kind="at-target"], .moment[data-kind="breakdown"] { --_tone: var(--vc-danger-solid); }
 .moment[data-kind="wait"] { --_tone: var(--vc-warning-text); }
 .moment[data-kind="stop"], .moment[data-kind="arrive"], .moment[data-kind="all-arrived"] { --_tone: var(--vc-success-solid); }
 .moment-step { padding-top: 1px; color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -218,3 +222,8 @@ button.compare-pick:hover { background: var(--vc-surface-hover); }
   .story-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .moment { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* With malfunctions on: the run's score without them, under "Why it scores". */
+.story-normal { margin: 0 0 var(--vc-space-3); color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); line-height: 1.45; }
+/* The malfunction test's table in the Method tab. */
+.malf-test th[scope="row"] { font-weight: var(--vc-weight-medium); }

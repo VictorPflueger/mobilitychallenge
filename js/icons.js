@@ -11,7 +11,7 @@ const VICI = {
   close: "close", x: "close", flag: "flag", check: "check", warning: "warning", error: "error", success: "success",
   clock: "clock", chart: "chart-line", globe: "globe-hex", external: "external",
   list: "layers", hub: "honeycomb", pin: "pin", up: "chevron-up", down: "chevron-down", code: "code",
-  arrowUp: "arrow-up", more: "more", book: "book", map: "layout", eye: "eye", users: "users"
+  arrowUp: "arrow-up", more: "more", book: "book", map: "layout", eye: "eye", users: "users", zap: "zap"
 };
 
 /** The app's own drawings (static, trusted strings; never built from data). */

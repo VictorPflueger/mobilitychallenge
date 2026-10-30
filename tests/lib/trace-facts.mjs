@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fixturePath, mapPath } from "./maps.mjs";
+import { fixturePath, mapPath, runFile } from "./maps.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const readJson = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
@@ -26,10 +26,13 @@ export function timetables(data) {
   });
 }
 
-/** The facts of one run on a map (frankfurt by default) from its Python trace. */
-export function traceFacts(name, data, map = "frankfurt") {
+/**
+ * The facts of one run on a map (frankfurt by default) from its Python trace; variant "malfunctions"
+ * reads the run with malfunctions on (trace_<run>_malfunctions.json) and adds its breakdowns.
+ */
+export function traceFacts(name, data, map = "frankfurt", variant = "normal") {
   data = data || readJson(mapPath(map));
-  const fx = readJson(fixturePath(map, `trace_${name}.json`));
+  const fx = readJson(fixturePath(map, `trace_${runFile(name, variant)}.json`));
   const tts = timetables(data);
   const n = tts.length;
   const rows = [fx.initial, ...fx.trace]; // rows[t]: the state at the end of step t
@@ -68,6 +71,8 @@ export function traceFacts(name, data, map = "frankfurt") {
   // it if it moves on without that.
   let firstPass = null;
   let firstServed = null;
+  // atStop[i][t]: the stop whose platform train i stands on at the end of step t (as above), or -1
+  const atStop = tts.map(() => new Array(T + 1).fill(-1));
   for (let i = 0; i < n; i += 1) {
     const reached = new Set();
     let at = -1;
@@ -87,6 +92,7 @@ export function traceFacts(name, data, map = "frankfurt") {
         stopped = true;
         if (!firstServed || t < firstServed.step || (t === firstServed.step && i < firstServed.train)) firstServed = { step: t, train: i, stop: at };
       }
+      atStop[i][t] = at;
     }
   }
 
@@ -99,7 +105,34 @@ export function traceFacts(name, data, map = "frankfurt") {
   for (const [, agent, , value] of fx.terms) perTrain[agent] += value;
   const arrived = arrival.filter((s) => s !== null).length;
 
+  // Breakdowns (runs with malfunctions), from the malfunction counters alone: a breakdown starts when
+  // a train's counter, which otherwise only counts down, is set (to the breakdown's length − 1), and
+  // it counts when it hits a train not yet done. Train-steps broken down: steps in a malfunction state
+  // (MALFUNCTION_OFF_MAP 2, MALFUNCTION 5). Broken down on the network at step t: in state 5.
+  const breakdowns = [];
+  let brokenSteps = 0;
+  const brokenOnMap = new Array(T + 1).fill(0);
+  if (fx.trace[0]?.malf) {
+    for (let t = 1; t <= T; t += 1) {
+      for (let i = 0; i < n; i += 1) {
+        const before = rows[t - 1].malf ? rows[t - 1].malf[i] : 0;
+        const after = rows[t].malf[i];
+        const st = rows[t].state[i];
+        // a broken-down train has not moved in the step, so it stands where it stood after the step before
+        if (after > Math.max(before - 1, 0) && st !== DONE) breakdowns.push({ step: t, train: i, steps: after + 1, offMap: st === 2, stop: st === 2 ? -1 : atStop[i][t - 1] });
+        if (st === 2 || st === 5) brokenSteps += 1;
+        if (st === 5) brokenOnMap[t] += 1;
+      }
+    }
+  }
+  const hits = new Array(n).fill(0);
+  for (const b of breakdowns) hits[b.train] += 1;
+  const most = hits.reduce((best, c, i) => (c > hits[best] ? i : best), 0);
+
   return {
+    breakdowns: breakdowns.length, firstBreakdown: breakdowns[0] || null, brokenSteps, brokenOnMap,
+    firstBreakdownOnMap: breakdowns.find((b) => !b.offMap) || null, breakdownList: breakdowns,
+    mostBroken: breakdowns.length ? { train: most, count: hits[most] } : null,
     name, n, steps: T, score: fx.reward, arrived, arrival, entered, atTarget,
     lastArrival: arrived ? Math.max(...arrival.filter((s) => s !== null)) : null,
     collisions: collisions.length,

@@ -97,5 +97,102 @@
     }
    ]
   }
+ },
+ "malfunctions": {
+  "seed": 1,
+  "runs": {
+   "baseline": {
+    "reward": -250457.5,
+    "steps": 1710,
+    "bookings": []
+   },
+   "optimized": {
+    "reward": -34999.0,
+    "steps": 1336,
+    "bookings": [
+     {
+      "agent": 19,
+      "stop": 3,
+      "booked": [
+       56,
+       80,
+       3
+      ],
+      "options": [
+       {
+        "platform": [
+         56,
+         80,
+         3
+        ],
+        "value": 0.0
+       },
+       {
+        "platform": [
+         57,
+         80,
+         1
+        ],
+        "value": -49.5
+       }
+      ]
+     },
+     {
+      "agent": 20,
+      "stop": 3,
+      "booked": [
+       56,
+       80,
+       3
+      ],
+      "options": [
+       {
+        "platform": [
+         56,
+         80,
+         3
+        ],
+        "value": 0.0
+       },
+       {
+        "platform": [
+         57,
+         80,
+         1
+        ],
+        "value": -45.0
+       }
+      ]
+     },
+     {
+      "agent": 21,
+      "stop": 3,
+      "booked": [
+       56,
+       80,
+       3
+      ],
+      "options": [
+       {
+        "platform": [
+         56,
+         80,
+         3
+        ],
+        "value": 0.0
+       },
+       {
+        "platform": [
+         57,
+         80,
+         1
+        ],
+        "value": -56.5
+       }
+      ]
+     }
+    ]
+   }
+  }
  }
 }

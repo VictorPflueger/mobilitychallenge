@@ -15,5 +15,20 @@
    "steps": 597,
    "bookings": []
   }
+ },
+ "malfunctions": {
+  "seed": 1,
+  "runs": {
+   "baseline": {
+    "reward": -80766.49999999999,
+    "steps": 1248,
+    "bookings": []
+   },
+   "optimized": {
+    "reward": -3192.5,
+    "steps": 631,
+    "bookings": []
+   }
+  }
  }
 }

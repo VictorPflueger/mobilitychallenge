@@ -38,8 +38,12 @@ function kindsPhrase(kinds) {
   return `${t[0].an} ${words.length > 1 ? `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}` : words[0]}${noun}`;
 }
 
-/** The figures the guide states. ctx: { map, runList, scenario, network, runs, floor }. */
-export function guideFacts({ map, runList, scenario, network, runs, floor }) {
+/**
+ * The figures the guide states. ctx: { map, runList, scenario, network, runs, floor, malfunctions,
+ * reference }; malfunctions (js/main.js) says whether the runs met the challenge's malfunctions, and
+ * then reference.normal holds the Python runner's scores of the same runs without them.
+ */
+export function guideFacts({ map, runList, scenario, network, runs, floor, malfunctions = { on: false }, reference = null }) {
   const agents = scenario.agents;
   const kinds = [];
   network.trains.forEach((t, i) => {
@@ -110,6 +114,8 @@ export function guideFacts({ map, runList, scenario, network, runs, floor }) {
     stops, width: scenario.rail.width, height: scenario.rail.height, levelFree: scenario.levelFree.size,
     steps: scenario.maxSteps, penalty, example, runs: facts, leaderboard: map.leaderboard, slowSBahns,
     floor, reasons, trainNames: network.trains.map((t) => t.name), trainKinds: network.trains.map((t) => t.kind),
+    // with malfunctions on: their seed and the runs' scores without them (the Python runner's)
+    malfunctions: malfunctions.on ? { on: true, seed: malfunctions.seed, normal: Object.fromEntries(Object.entries(reference?.normal?.runs || {}).map(([k, v]) => [k, v.reward])) } : { on: false },
     givenSpeed: given, accel: ACCELERATION, brake: -BRAKING,
     // a train whose name has one place: on Neu-Frankfurt, a round trip from there to the Hauptbahnhof and back
     roundTrip: network.trains.map((t, i) => ({ i, name: t.name, places: t.name.split(" ").slice(1, -1) })).find((t) => t.places.length === 1 && network.trains[t.i].kind === "RB"),
@@ -167,7 +173,7 @@ export function chapters(F) {
     : `${slowWho} too slow for their own timetables: even on empty track, at full speed and without halting, each loses at least ${amount(slowLeast)} points. ${floorText}`;
 
   // The baseline's card: its collisions, its gridlock (if it jams), arrivals and stops.
-  const baselineHappens = `${count(b.collisions)} collisions.${b.gridlockFrom !== null ? ` From step ${count(b.gridlockFrom)} on, ${plural(b.stuck, "train")} block each other and nothing moves again:` : ""} ${count(b.arrived)} of ${count(b.n)} trains arrive${b.atTarget.length ? ` (${count(b.atTarget.length)} of them the moment they enter)` : ""}, and ${b.served ? `${count(b.served)} of ${count(b.stops)} stops are` : "not a single stop is"} served.`;
+  const baselineHappens = `${count(b.collisions)} collisions.${b.gridlockFrom !== null ? ` From step ${count(b.gridlockFrom)} on, ${plural(b.stuck, "train")} block each other and nothing moves again:` : ""} ${count(b.arrived)} of ${count(b.n)} trains arrive${b.atTarget.length ? ` (${count(b.atTarget.length)} of them the moment they enter)` : ""}, and ${b.served ? `${count(b.served)} of ${count(b.stops)} stops ${b.served === 1 ? "is" : "are"}` : "not a single stop is"} served.`;
   // The optimized run's card: what it gets through, and where its points come from. On Neu-Frankfurt
   // every train and stop, and two slow S-Bahns; on Köln every train, and the stops of the trains done
   // as they enter, lost whatever the dispatcher does.
@@ -179,8 +185,11 @@ export function chapters(F) {
   const onlyTheirStopsLost = doneAtEntry.length > 0 && doneAtEntry.join() === atTarget.trains.join()
     && o.served + atTarget.stops === o.stops && o.unservedBy.every((i) => doneAtEntry.includes(i));
   const opening = `${o.collisions ? `${count(o.collisions)} collisions.` : "No collision and no gridlock:"}`;
+  // With malfunctions on, the S-Bahns' points are not their timetable's alone: the breakdowns add to them.
   const optimizedHappens = o.served === o.stops && o.arrived === o.n
-    ? `All ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and all ${count(o.served)} stops are served. ${sbahnNames.length === 2 ? `${amount(sbahnPoints)} of the ${amount(o.score)} points left come from the two S-Bahns ${sbahnNames[0]} and ${sbahnNames[1]}: even at full speed their trip takes longer than their timetable allows. ${floorText}` : floorText}`.trim()
+    ? (F.malfunctions.on
+      ? `All ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and all ${count(o.served)} stops are served, whatever breaks down. ${floorText}`
+      : `All ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and all ${count(o.served)} stops are served. ${sbahnNames.length === 2 ? `${amount(sbahnPoints)} of the ${amount(o.score)} points left come from the two S-Bahns ${sbahnNames[0]} and ${sbahnNames[1]}: even at full speed their trip takes longer than their timetable allows. ${floorText}` : floorText}`).trim()
     : o.arrived === o.n && onlyTheirStopsLost
       ? `${opening} ${o.collisions ? "All" : "all"} ${count(o.n)} trains arrive by step ${count(o.lastArrival)}, ${count(doneAtEntry.length)} of them the moment they enter, and ${count(o.served)} of ${count(o.stops)} stops are served. ${amount(doneAtEntryPoints)} of the ${amount(o.score)} points come from those ${inWords(doneAtEntry.length)} (${doneAtEntry.map((i) => F.trainNames[i]).join(", ")}): they start on their destination and lose all their ${count(atTarget.stops)} stops, whatever the dispatcher does. ${floorText}`
       : `${opening} ${count(o.arrived)} of ${count(o.n)} trains arrive by step ${count(o.lastArrival)} and ${count(o.served)} of ${count(o.stops)} stops are served.${left.length ? ` The planner finds no plan without conflicts for ${plural(left.length, "train")}: they never set off, which costs ${amount(leftPoints)} of the ${amount(o.score)} points.` : ""} ${floorText}`;
@@ -315,15 +324,20 @@ export function chapters(F) {
     {
       id: "results",
       nav: `${capital(inWords(cards))} results`,
+      malfunctions: F.malfunctions.on,
       title: o.served === o.stops ? "From gridlock to every stop served"
         : o.arrived === o.n ? "From gridlock to every train at its destination"
           : o.collisions === 0 && o.gridlockFrom === null ? "From gridlock to a network without collisions" : "What each dispatcher gets",
       lead: `Dispatch Lab runs ${inWords(nRuns)} dispatchers on ${M.name}, the challenge's baseline and its own planner, and puts them next to the leaderboard's best, the target to beat. Each bar shows the points lost, on the baseline's scale: the shorter, the better.`,
       blocks: [
+        ...(F.malfunctions.on ? [{
+          type: "note", tone: "info", title: "With malfunctions on",
+          text: `Trains break down at random here, as with the challenge's malfunctions switched on (seed ${F.malfunctions.seed}): ${count(b.breakdowns)} breakdowns in the baseline, ${count(o.breakdowns)} in the optimized run, from the same draws. Without them the baseline scores ${score(F.malfunctions.normal.baseline)} and the optimized run ${score(F.malfunctions.normal.optimized)}. The leaderboard's figure is for runs without malfunctions.`
+        }] : []),
         {
           type: "results", cards: [
             {
-              run: "baseline", name: "Baseline", score: score(b.score), source: "Simulated in your browser",
+              run: "baseline", name: "Baseline", score: score(b.score), source: F.malfunctions.on ? "Simulated in your browser, with the recorded breakdowns" : "Simulated in your browser",
               does: "The challenge's starting point. Every train takes the shortest way to its destination and never waits: not for other trains, and not at its stations.",
               happens: baselineHappens,
               watch: b.gridlockFrom !== null ? "Watch the gridlock" : "Watch the baseline"
@@ -335,8 +349,10 @@ export function chapters(F) {
               happens: "It is the target to beat: the page shows the same figure on both maps. Only the score is known, not how it was reached."
             },
             {
-              run: "optimized", name: "Optimized", score: score(o.score), source: "Planned in Python beforehand, replayed here",
-              does: "This page's own planner, PlannerController v2, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
+              run: "optimized", name: "Optimized", score: score(o.score), source: F.malfunctions.on ? "Run in Python under the same breakdowns, replayed here" : "Planned in Python beforehand, replayed here",
+              does: F.malfunctions.on
+                ? "This page's own planner, PlannerController v2, books every train's route, stops and timing together before the first step. From the first breakdown on it follows the plan in a safe mode: planned routes, the planned order through every cell, every planned stop."
+                : "This page's own planner, PlannerController v2, books every train's route, stops and timing together, then keeps improving the plan a few trains at a time.",
               happens: optimizedHappens,
               watch: "Watch the optimized run"
             }
@@ -353,8 +369,9 @@ export function chapters(F) {
         {
           type: "howto", items: [
             { area: "maps", title: "Two maps", text: "Köln, which the page opens on, and Neu-Frankfurt, the map the challenge's own runner loads: switch between them at the top of the page. Each has its own trains, timetables and runs." },
+            { area: "malfunctions", title: "Malfunctions", text: `The switch beside the runs turns on the challenge's malfunctions: trains break down at random and stand for a few steps, the same breakdowns in both runs. The challenge's runner and its leaderboard run without them${F.malfunctions.on ? "; they are on now" : ", and so does the page until you switch them on"}.` },
             { area: "runs", title: "Runs and playback", text: `Switch between the ${inWords(nRuns)} runs at the top. Play, step through or drag the timeline; the speed buttons go up to 16 times.` },
-            { area: "map", title: "The map", text: "Each train is a hexagon. Its colour and outline show its state, as the legend under the map names them: on time, behind its timetable, standing, blocked (a dashed ring: a train is in its way right now) or stuck (a dashed ring: standing 40 steps or more past its time). The line under the run's name says what is going on. The faint squares under the tracks are the railway's cells (Grid, beside the views, switches them off); the honeycomb around them is only the page's background." },
+            { area: "map", title: "The map", text: `Each train is a hexagon. Its colour and outline show its state, as the legend under the map names them: on time, behind its timetable, standing, blocked (a dashed ring: a train is in its way right now) or stuck (a dashed ring: standing 40 steps or more past its time)${F.malfunctions.on ? "; with malfunctions on, a hatched hexagon is a train broken down, standing where it broke down" : ""}. The line under the run's name says what is going on. The faint squares under the tracks are the railway's cells (Grid, beside the views, switches them off); the honeycomb around them is only the page's background.` },
             { area: "kpis", title: "The tiles", text: "The score so far, the run's final score against the leaderboard's best, the trains that have arrived and the stops served." },
             { area: "panel", title: "The panel", text: "Story: what happens in the run and when. Score: where the points go. Trains: each train's timetable as it ran. Events: everything, in order. Method: how the page computes it." }
           ]

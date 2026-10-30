@@ -1,4 +1,7 @@
 // Negative controls for tests/engine.mjs: the parity check must fail when the engine is wrong.
+// With malfunctions on, the runs must catch the generator's draws a step late, a breakdown a step
+// longer, a draw given to the next train, a breakdown overwritten while one runs, no draws at all,
+// and a changed action of the plan PlannerController v2 followed under them.
 // Each case plants one small change (in the train dynamics, the map, the conflict rule, the reward
 // function, the plan, the distance map or the score breakdown) and the parity check must report a
 // difference. The unchanged engine must pass first, so a failure is the check's doing, not a broken
@@ -9,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { bookingsOf, distanceMapParity, parity, scoresParity, termsParity } from "./engine.mjs";
+import { bookingsOf, distanceMapParity, drawsOf, parity, scoresParity, termsParity } from "./engine.mjs";
 import { hashOrder } from "../js/hashorder.js";
 import { RailEnv } from "../js/engine/env.js";
 import { MotionCheck } from "../js/engine/motion.js";
@@ -178,6 +181,36 @@ expectDifference("Köln: the S-Bahn loops' destination one cell off their first 
     if (!moved) throw new Error("no train starts on its destination");
   }
 }));
+
+// Malfunctions: the unchanged engine passes both maps' runs with them, and each planted change in how
+// the generator's draws break trains down is caught (data/<map>/malfunctions.json; js/engine/env.js).
+const MALF = { variant: "malfunctions" };
+for (const map of ["frankfurt", "koeln"]) {
+  for (const name of ["baseline", "optimized"]) {
+    const r = parity(name, { ...MALF, map });
+    results.push([r.ok, `unchanged engine, ${map} ${name} with malfunctions: ${r.ok ? "passes" : `FAILS (${r.message})`}`]);
+    const t = termsParity(name, { ...MALF, map });
+    results.push([t.ok, `unchanged page, the score breakdown of ${map} ${name} with malfunctions: ${t.ok ? "passes" : `FAILS (${t.message})`}`]);
+  }
+  const draws = drawsOf({ ...MALF, map });
+  const trains = readJson(mapPath(map))["flatland line"].agent_positions.length;
+  const both = (options) => ["baseline", "optimized"].map((n) => parity(n, { ...MALF, map, ...options })).find((r) => !r.ok) || { ok: true };
+  expectDifference(`${map}: the malfunction draws a step late`, () => both({ draws: draws.map(([t, i, n]) => [t + 1, i, n]) }));
+  expectDifference(`${map}: the first breakdown a step longer`, () => both({ draws: draws.map((d, j) => (j === 0 ? [d[0], d[1], d[2] + 1] : d)) }));
+  expectDifference(`${map}: every draw given to the next train`, () => both({ draws: draws.map(([t, i, n]) => [t, (i + 1) % trains, n]) }));
+  expectDifference(`${map}: a draw overwrites a breakdown still running`, () => patched(RailEnv.prototype, "generateMalfunction", function (agent, broken) {
+    if (agent.malfunctionDown === 0) agent.malfunctions += 1;
+    agent.malfunctionDown = broken;
+  }, () => both({})));
+  expectDifference(`${map}: no draws at all (malfunctions off) against the runs with malfunctions`, () => both({ draws: [] }));
+  expectDifference(`${map}: one action of the plan under malfunctions changed`, () => parity("optimized", {
+    ...MALF, map,
+    mutatePlan: (plan) => {
+      const step = plan.actions.findIndex((a) => a.includes(2));
+      plan.actions[step][plan.actions[step].indexOf(2)] = 0;
+    }
+  }));
+}
 
 // The score breakdown: the total stays right, but a term is booked under the wrong heading or stop.
 const relabel = (change) => {

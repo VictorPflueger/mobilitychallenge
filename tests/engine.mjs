@@ -26,6 +26,10 @@
 //                          (once, for both maps)
 // The runs are replayed with the bookings their Python record gives (js/engine/env.js, stopArrival);
 // a stop reached on two or more listed platforms without one fails the run.
+// Every run is checked twice: as the challenge's runner runs it, and with the challenge's malfunctions
+// on (the page's Malfunctions switch): trace_<run>_malfunctions.json, the generator's draws in
+// data/<map>/malfunctions.json, the optimized run's plan under them and their scores and bookings in
+// reference.json's "malfunctions"; those traces also hold every train's malfunction counter (malf).
 // Usage: node tests/engine.mjs [case ...] [--map frankfurt|koeln] [koeln:baseline ...]
 //        (no case: all of them; no map: every map)
 import { createHash } from "node:crypto";
@@ -38,19 +42,31 @@ import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { KINDS, breakdown, simulate } from "../js/sim.js";
 import { hashOrder } from "../js/hashorder.js";
-import { MAPS, fixturePath, mapPath, parseCases, planPath, referencePath } from "./lib/maps.mjs";
+import { MAPS, VARIANTS, fixturePath, malfunctionsPath, mapPath, parseCases, planPath, referencePath, runFile } from "./lib/maps.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (f) => JSON.parse(readFileSync(path.join(ROOT, f), "utf8"));
 
+/** The Python runner's record of the map's runs: without malfunctions, or with them (options.variant). */
+const recordOf = (options = {}) => {
+  const ref = read(referencePath(options.map || "frankfurt"));
+  return options.variant === "malfunctions" ? ref.malfunctions.runs : ref.runs;
+};
+
 /** The stops a run booked in Python's hash order, as its record gives them (or options.bookings). */
-export const bookingsOf = (name, options = {}) => options.bookings ?? read(referencePath(options.map || "frankfurt")).runs[name]?.bookings ?? [];
+export const bookingsOf = (name, options = {}) => options.bookings ?? recordOf(options)[name]?.bookings ?? [];
+
+/**
+ * With options.variant "malfunctions": the malfunction generator's draws the engine replays
+ * (data/<map>/malfunctions.json, or options.draws); otherwise null, malfunctions off.
+ */
+export const drawsOf = (options = {}) => (options.variant === "malfunctions" ? options.draws ?? read(malfunctionsPath(options.map || "frankfurt")).draws : null);
 
 export function makeEnv(options = {}) {
   const data = options.mapData || read(mapPath(options.map || "frankfurt"));
   const scenario = loadScenario(data);
   if (options.mutateScenario) options.mutateScenario(scenario);
-  const env = new RailEnv(scenario, { ...(options.env || {}), bookings: options.bookings || [] });
+  const env = new RailEnv(scenario, { ...(options.env || {}), bookings: options.bookings || [], malfunctions: options.malfunctions ?? null });
   if (options.mutateEnv) options.mutateEnv(env);
   return env;
 }
@@ -58,14 +74,14 @@ export function makeEnv(options = {}) {
 export function makeController(name, options = {}) {
   if (name === "baseline") return new OrderedController();
   if (name === "optimized") {
-    const plan = read(planPath(options.map || "frankfurt"));
+    const plan = read(planPath(options.map || "frankfurt", options.variant));
     if (options.mutatePlan) options.mutatePlan(plan);
     return new ReplayController(plan, name);
   }
   throw new Error(`unknown controller ${name}`);
 }
 
-/** The engine's state of every train in the fixture's shape. */
+/** The engine's state of every train in the fixture's shape (malf: the malfunction counter). */
 function snapshot(env, rewards) {
   const rail = env.rail;
   return {
@@ -75,7 +91,8 @@ function snapshot(env, rewards) {
     speed: env.agents.map((a) => a.speed),
     dist: env.agents.map((a) => a.distance),
     rew: env.agents.map((a) => (rewards ? rewards[a.handle].v : 0)),
-    done: env.agents.map((a) => env.dones[a.handle])
+    done: env.agents.map((a) => env.dones[a.handle]),
+    malf: env.agents.map((a) => a.malfunctionDown)
   };
 }
 
@@ -96,8 +113,9 @@ function firstDifference(expected, actual) {
  * options lets tests/engine-negctl.mjs plant a change in the engine.
  */
 export function parity(name, options = {}) {
-  const fixture = read(fixturePath(options.map || "frankfurt", `trace_${name}.json`));
-  const env = makeEnv({ ...options, bookings: bookingsOf(name, options) });
+  const fixture = read(fixturePath(options.map || "frankfurt", `trace_${runFile(name, options.variant)}.json`));
+  if (options.variant === "malfunctions" && !fixture.trace[0]?.malf) return { ok: false, message: "the trace with malfunctions records no malfunction counter" };
+  const env = makeEnv({ ...options, bookings: bookingsOf(name, options), malfunctions: drawsOf(options) });
   const controller = makeController(name, options);
   let step = 0;
   let problem = null;
@@ -135,9 +153,9 @@ export function parity(name, options = {}) {
  */
 export function termsParity(name, options = {}) {
   const map = options.map || "frankfurt";
-  const fixture = read(fixturePath(map, `trace_${name}.json`));
+  const fixture = read(fixturePath(map, `trace_${runFile(name, options.variant)}.json`));
   const scenario = loadScenario(read(mapPath(map)));
-  const run = simulate(scenario, makeController(name, options), { bookings: bookingsOf(name, options) });
+  const run = simulate(scenario, makeController(name, options), { bookings: bookingsOf(name, options), malfunctions: drawsOf(options) });
   if (run.ambiguous.length) return { ok: false, message: `a stop reached on two or more listed platforms the engine could not book as Python did: ${JSON.stringify(run.ambiguous)}` };
   const mine = run.ledger.map((e) => [e.step, e.agent, e.kind, e.value, e.stop]);
   const theirs = fixture.terms;
@@ -178,7 +196,7 @@ export function bookingsParity(name, options = {}) {
   const scenario = loadScenario(read(mapPath(map)));
   const key = ([r, c, d]) => (r * scenario.rail.width + c) * 4 + d;
   const sorted = (xs) => [...xs].sort((a, b) => a - b).join(",");
-  const runWith = (bookings) => simulate(scenario, makeController(name, options), { bookings });
+  const runWith = (bookings) => simulate(scenario, makeController(name, options), { bookings, malfunctions: drawsOf(options) });
   const stopValue = (run, b) => run.ledger.filter((e) => e.agent === b.agent && e.stop === b.stop).reduce((s, e) => s + e.value, 0);
   const base = runWith(recorded);
   if (base.ambiguous.length) return { ok: false, message: `stops the engine could not book as recorded: ${JSON.stringify(base.ambiguous)}` };
@@ -228,12 +246,12 @@ export function scoresParity(name, options = {}) {
   const scores = [];
   for (const choice of choices) {
     const bookings = recorded.map((b) => ({ ...b, booked: choice[groups.findIndex((g) => g.includes(b))] }));
-    const run = simulate(scenario, makeController(name, options), { bookings });
+    const run = simulate(scenario, makeController(name, options), { bookings, malfunctions: drawsOf(options) });
     if (run.ambiguous.length) return { ok: false, message: `the engine could not book ${JSON.stringify(run.ambiguous)}` };
     if (!scores.includes(run.score)) scores.push(run.score);
   }
   scores.sort((x, y) => x - y);
-  const base = simulate(scenario, makeController(name, options), { bookings: recorded });
+  const base = simulate(scenario, makeController(name, options), { bookings: recorded, malfunctions: drawsOf(options) });
   const page = hashOrder.scores(base.score, hashOrder.groups(recorded, scenario));
   if (page.join(" ") !== scores.join(" ")) return { ok: false, message: `the page says the run can score ${page.join(", ")}; the engine, booking each group alike, ${scores.join(", ")}` };
   return { ok: true, groups: groups.length, stops: recorded.length, scores };
@@ -295,31 +313,40 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         else { failed += 1; console.log(`FAIL  ${map}: distance map differs for trains ${r.bad.join(", ") || "(shape or overall digest)"}`); }
       } else if (name === "terms") {
         let bad = 0;
-        for (const run of runs) {
-          const r = termsParity(run, { map });
-          if (r.ok) {
-            const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 100) / 100}`);
-            console.log(`PASS  ${map} ${run}: ${r.terms} terms identical to the Python reward function's (${listed.join(", ")})`);
-          } else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
+        for (const variant of VARIANTS) {
+          for (const run of runs) {
+            const label = runFile(run, variant);
+            const r = termsParity(run, { map, variant });
+            if (r.ok) {
+              const listed = Object.entries(r.kinds).filter(([, v]) => v.count).map(([k, v]) => `${k} ${v.count} × ${Math.round(v.value * 100) / 100}`);
+              console.log(`PASS  ${map} ${label}: ${r.terms} terms identical to the Python reward function's (${listed.join(", ")})`);
+            } else { bad += 1; console.log(`FAIL  ${map} ${label}: ${r.message}`); }
+          }
         }
         if (bad) failed += 1; else console.log(`TERMS_PARITY_OK ${map}`);
       } else if (name === "bookings") {
         let bad = 0;
-        for (const run of runs) {
-          const r = bookingsParity(run, { map });
-          if (r.ok) console.log(`PASS  ${map} ${run}: ${r.count ? `${r.count} stops booked in hash order as recorded; booked at any of the ${r.options} platforms their trains stood on, they add what the record says` : "no stop booked in hash order, as recorded"}`);
-          else { bad += 1; console.log(`FAIL  ${map} ${run}: ${r.message}`); }
-          const sc = scoresParity(run, { map });
-          if (sc.ok) console.log(`PASS  ${map} ${run}: ${sc.stops ? `${sc.stops} stops in ${sc.groups} ${sc.groups === 1 ? "group" : "groups"} booked alike; the page's possible scores (${sc.scores.join(", ")}) are exactly the engine's for each choice of platform per group` : `one possible score (${sc.scores[0]}), as the page says`}`);
-          else { bad += 1; console.log(`FAIL  ${map} ${run}: ${sc.message}`); }
+        for (const variant of VARIANTS) {
+          for (const run of runs) {
+            const label = runFile(run, variant);
+            const r = bookingsParity(run, { map, variant });
+            if (r.ok) console.log(`PASS  ${map} ${label}: ${r.count ? `${r.count} stops booked in hash order as recorded; booked at any of the ${r.options} platforms their trains stood on, they add what the record says` : "no stop booked in hash order, as recorded"}`);
+            else { bad += 1; console.log(`FAIL  ${map} ${label}: ${r.message}`); }
+            const sc = scoresParity(run, { map, variant });
+            if (sc.ok) console.log(`PASS  ${map} ${label}: ${sc.stops ? `${sc.stops} stops in ${sc.groups} ${sc.groups === 1 ? "group" : "groups"} booked alike; the page's possible scores (${sc.scores.join(", ")}) are exactly the engine's for each choice of platform per group` : `one possible score (${sc.scores[0]}), as the page says`}`);
+            else { bad += 1; console.log(`FAIL  ${map} ${label}: ${sc.message}`); }
+          }
         }
         if (bad) failed += 1; else console.log(`BOOKINGS_PARITY_OK ${map}`);
       } else {
         if (!runs.includes(name)) { console.log(`skip  ${map}: no ${name} run on this map`); continue; }
-        const t0 = Date.now();
-        const r = parity(name, { map });
-        if (r.ok) console.log(`PASS  ${map} ${name}: ${r.steps} steps identical to the Python environment, score ${r.reward} (${Date.now() - t0} ms)\nENGINE_PARITY_OK ${map}:${name}`);
-        else { failed += 1; console.log(`FAIL  ${map} ${name}: ${r.message}`); }
+        for (const variant of VARIANTS) {
+          const label = runFile(name, variant);
+          const t0 = Date.now();
+          const r = parity(name, { map, variant });
+          if (r.ok) console.log(`PASS  ${map} ${label}: ${r.steps} steps identical to the Python environment${variant === "malfunctions" ? ", every malfunction counter included" : ""}, score ${r.reward} (${Date.now() - t0} ms)\nENGINE_PARITY_OK ${map}:${label}`);
+          else { failed += 1; console.log(`FAIL  ${map} ${label}: ${r.message}`); }
+        }
       }
       covered.add(map);
     }

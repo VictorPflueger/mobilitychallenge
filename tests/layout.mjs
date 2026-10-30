@@ -9,8 +9,11 @@
 // optimized run at its end with a train's timetable open, and the view around the Hbf with a train
 // picked), and at five on Köln (its optimized run at the start, as the page opens without ?map=, its
 // baseline in the gridlock, its optimized run with trains waiting at their entry and at its end with
-// RB nord1's timetable open, and the view around Stop 14 with a train picked); then in each of the
-// guide's seven chapters, on both maps: the dialog
+// RB nord1's timetable open, and the view around Stop 14 with a train picked), and at three with
+// malfunctions on (Köln's optimized run with nine trains broken down in the hub, its Method tab with
+// the test over many seeds, Neu-Frankfurt's baseline with malfunctions); the Malfunctions switch
+// beside the runs is there in every state; then in each of the guide's seven chapters, on both maps
+// and on Köln with malfunctions on: the dialog
 // inside the window, nothing in a chapter wider than the chapter (no sideways scrolling), its
 // drawings' labels large enough to read (10 px at least) and its buttons large enough to hit.
 // Usage: node tests/layout.mjs [viewport ...]   (e.g. 1280x720)
@@ -31,9 +34,13 @@ const STATES = [
   { name: "Köln, optimized with trains waiting at their entry", url: "?map=koeln&run=optimized&step=50", situation: "wait at their entry", mustName: "Essen" },
   // a timetable with a stop booked in Python's hash order, and its note
   { name: "Köln, optimized at the end, RB nord1's timetable open", url: "?map=koeln&run=optimized&step=1710", mustName: "Essen", act: async (page) => { await page.click("#tab-trains"); await page.click('tr[data-train="19"] .train-pick'); } },
-  { name: "Köln, around Stop 14, a train picked", url: "?map=koeln&run=baseline&step=150", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); await page.click("#tab-trains"); await page.click('tr[data-train="16"] .train-pick'); } }
+  { name: "Köln, around Stop 14, a train picked", url: "?map=koeln&run=baseline&step=150", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); await page.click("#tab-trains"); await page.click('tr[data-train="16"] .train-pick'); } },
+  // with malfunctions on (the switch beside the runs)
+  { name: "Köln with malfunctions, optimized, trains broken down in the hub", url: "?map=koeln&malfunctions=on&run=optimized&step=81", situation: "broken down", act: async (page) => { await page.click('.map-views button:has-text("Around Stop 14")'); } },
+  { name: "Köln with malfunctions, the Method tab's test", url: "?map=koeln&malfunctions=on&run=optimized&step=400", mustName: "Essen", act: async (page) => { await page.click("#tab-method"); await page.$eval(".malf-test", (el) => el.scrollIntoView()); } },
+  { name: "Neu-Frankfurt with malfunctions, baseline", url: "?map=frankfurt&malfunctions=on&run=baseline&step=250", mustName: "Hbf" }
 ];
-const GUIDES = [{ map: "frankfurt", url: "?map=frankfurt&run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }];
+const GUIDES = [{ map: "frankfurt", url: "?map=frankfurt&run=optimized&step=0" }, { map: "koeln", url: "?map=koeln&run=optimized&step=0" }, { map: "koeln-malfunctions", url: "?map=koeln&malfunctions=on&run=optimized&step=0" }];
 
 const chosen = VIEWPORTS.filter(([w, h]) => !ONLY.length || ONLY.includes(`${w}x${h}`));
 const failures = [];
@@ -48,6 +55,10 @@ function inPage(mustName) {
   const vw = document.documentElement.clientWidth;
   const out = { problems: [], small: [] };
   if (document.documentElement.scrollWidth > vw + 1) out.problems.push(`the page scrolls sideways (${document.documentElement.scrollWidth} px for ${vw} px)`);
+  // Wider than 860 px the page is one window tall and only its panels scroll (css/style.css): nothing
+  // may make the page itself scroll down, such as a visually hidden caption far down a panel.
+  const vh = document.documentElement.clientHeight;
+  if (vw > 860 && document.documentElement.scrollHeight > vh + 1) out.problems.push(`the page scrolls down (${document.documentElement.scrollHeight} px for ${vh} px)`);
   // Header: badges vs KPI tiles.
   const badges = [...document.querySelectorAll(".header-badges > *")].map((e) => e.getBoundingClientRect());
   const kpis = [...document.querySelectorAll(".kpi")].map((e) => e.getBoundingClientRect());
@@ -66,6 +77,10 @@ function inPage(mustName) {
   const panel = rect(".map-panel");
   if (views && panel && (views.l < panel.l - 1 || views.r > panel.r + 1)) out.problems.push(`the map's tools leave its panel (${Math.round(views.l)}–${Math.round(views.r)} of ${Math.round(panel.l)}–${Math.round(panel.r)})`);
   if (!document.querySelector(".map-tools .grid-button")) out.problems.push("the grid switch is missing");
+  const malf = rect("#btn-malfunctions");
+  const runSwitch = rect(".run-switch");
+  if (!malf || !malf.w) out.problems.push("the Malfunctions switch is missing");
+  else if (runSwitch && !(malf.t >= runSwitch.b - 1 || Math.abs((malf.t + malf.b) / 2 - (runSwitch.t + runSwitch.b) / 2) < 6)) out.problems.push("the Malfunctions switch is neither beside the run switch nor under it");
   const legend = rect(".map-legend");
   if (overlap(cap, views)) out.problems.push("the map caption and the tools overlap");
   if (overlap(cap, legend)) out.problems.push("the map caption and the legend overlap");
@@ -212,7 +227,7 @@ try {
         await page.screenshot({ path: path.join(shots, `layout-${w}x${h}-${guide.map}-guide-${id}.png`) });
       }
     }
-    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states on both maps, ${chapters} chapters of the two guides (smallest label ${smallest.toFixed(1)} px)${bad ? `, ${bad} problem(s)` : ""}`);
+    report.push(`${bad ? "FAIL" : "PASS"}  ${w}×${h}: ${STATES.length} states on both maps, ${chapters} chapters of the three guides (smallest label ${smallest.toFixed(1)} px)${bad ? `, ${bad} problem(s)` : ""}`);
     await context.close();
   }
 } finally {

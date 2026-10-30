@@ -2,7 +2,9 @@
 // from the page's run (trains arrived, collisions, the gridlock, stops served and passed, waits, late
 // arrivals) and the steps and trains of the moments it offers, compared with the same facts worked
 // out independently from tests/fixtures/<map>/trace_*.json and the scenario file
-// (tests/lib/trace-facts.mjs), on every map.
+// (tests/lib/trace-facts.mjs), on every map, without and with malfunctions (then also the
+// breakdowns: how many, the first and the first on the network, every one the Events tab lists with
+// its place, the train-steps broken down, and the map's "broken down" line).
 // Usage: node tests/story.mjs [frankfurt|koeln]
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
@@ -13,7 +15,7 @@ import { mapById } from "../js/maps.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson, traceFacts } from "./lib/trace-facts.mjs";
-import { MAP_IDS, mapPath, planPath, referencePath } from "./lib/maps.mjs";
+import { MAP_IDS, VARIANTS, malfunctionsPath, mapPath, planPath, referencePath } from "./lib/maps.mjs";
 
 const results = [];
 const check = (ok, what) => results.push([ok, what]);
@@ -27,16 +29,20 @@ const data = readJson(mapPath(id));
 const reference = readJson(referencePath(id));
 const scenario = loadScenario(data);
 const network = describe(data, map);
+for (const variant of VARIANTS) {
+const malf = variant === "malfunctions";
 const controllers = {
   baseline: () => new OrderedController(),
-  optimized: () => new ReplayController(readJson(planPath(id)), "optimized")
+  optimized: () => new ReplayController(readJson(planPath(id, variant)), "optimized")
 };
+const record = malf ? reference.malfunctions.runs : reference.runs;
+const draws = malf ? readJson(malfunctionsPath(id)).draws : null;
 
 for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
-  const run = simulate(scenario, controllers[r.id](), { bookings: reference.runs[r.id].bookings });
+  const run = simulate(scenario, controllers[r.id](), { bookings: record[r.id].bookings, malfunctions: draws });
   const page = runFacts(run, scenario);
-  const py = traceFacts(r.id, data, id);
-  const tag = `${id} ${r.id}`;
+  const py = traceFacts(r.id, data, id, variant);
+  const tag = `${id} ${r.id}${malf ? " with malfunctions" : ""}`;
   const pairs = [
     ["trains arrived", page.arrived, py.arrived],
     ["arrival steps", page.arrivals, py.arrival],
@@ -49,8 +55,25 @@ for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
     ["stops passed without stopping", page.passed, py.passed],
     ["stops never reached", page.missed, py.missed],
     ["longest wait at the entry (train, steps)", [page.longestWait.train, page.longestWait.wait], [py.longestWait.train, py.longestWait.wait]],
-    ["trains late at their destination (trains, steps)", [page.lateTrains, page.lateSteps], [py.lateTrains, py.lateSteps]]
+    ["trains late at their destination (trains, steps)", [page.lateTrains, page.lateSteps], [py.lateTrains, py.lateSteps]],
+    ["breakdowns", page.breakdowns, py.breakdowns],
+    ["first breakdown (step, train, steps, before entering)", page.firstBreakdown && [page.firstBreakdown.step, page.firstBreakdown.train, page.firstBreakdown.steps, page.firstBreakdown.offMap], py.firstBreakdown && [py.firstBreakdown.step, py.firstBreakdown.train, py.firstBreakdown.steps, py.firstBreakdown.offMap]],
+    ["first breakdown on the network (step, train, steps)", page.firstBreakdownOnMap && [page.firstBreakdownOnMap.step, page.firstBreakdownOnMap.train, page.firstBreakdownOnMap.steps], py.firstBreakdownOnMap && [py.firstBreakdownOnMap.step, py.firstBreakdownOnMap.train, py.firstBreakdownOnMap.steps]],
+    ["train-steps broken down", page.brokenSteps, py.brokenSteps],
+    ["the train broken down most often (train, times)", page.mostBroken && [page.mostBroken.train, page.mostBroken.count], py.mostBroken && [py.mostBroken.train, py.mostBroken.count]]
   ];
+  if (malf) {
+    check(py.breakdowns > 0, `${tag}: the Python run with malfunctions has breakdowns (${py.breakdowns})`);
+    // Every breakdown the Events tab lists (js/sim.js): its step, train, length, and where it happened
+    // (before entering, on a platform of the stop the train calls at, or elsewhere), as the trace has it.
+    const where = (offMap, stop) => (offMap ? "before entering" : stop > 0 ? `stop ${stop}` : "on the line");
+    const pageList = run.events.filter((e) => e.kind === "breakdown").map((e) => [e.step, e.train, e.steps, where(e.offMap, e.onPlatform)]);
+    const pyList = py.breakdownList.map((x) => [x.step, x.train, x.steps, where(x.offMap, x.stop)]);
+    const firstDiff = pyList.findIndex((x, j) => !same(x, pageList[j]));
+    const atStops = pyList.filter((x) => x[3].startsWith("stop")).length;
+    check(pageList.length === pyList.length && firstDiff < 0,
+      `${tag}: every breakdown in the events (${pageList.length}; ${atStops} of them at a stop's platform) is the trace's: step, train, length and place${firstDiff >= 0 ? `; first difference: page ${JSON.stringify(pageList[firstDiff])}, Python ${JSON.stringify(pyList[firstDiff])}` : ""}`);
+  }
   for (const [what, a, b] of pairs) check(same(a, b), `${tag}: ${what}: page ${JSON.stringify(a)}, Python ${JSON.stringify(b)}`);
 
   // The moments: each step and train as the trace has it.
@@ -70,6 +93,8 @@ for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
     // the longest wait at an entry, when it lasts 100 steps or more: at the step the train enters
     ["wait", py.longestWait.wait >= 100 ? { step: Math.min(py.entered[py.longestWait.train] ?? py.steps, py.steps), train: py.longestWait.train } : null],
     ["all-arrived", py.arrived === py.n ? { step: py.lastArrival, train: py.arrival.indexOf(py.lastArrival) } : null],
+    // the first breakdown on the network, the first to see on the map (else the first of all)
+    ["breakdown", (py.firstBreakdownOnMap || py.firstBreakdown) && { step: (py.firstBreakdownOnMap || py.firstBreakdown).step, train: (py.firstBreakdownOnMap || py.firstBreakdown).train }],
     ["end", { step: py.steps, train: null }]
   ];
   for (const [kind, want] of expect) {
@@ -103,6 +128,36 @@ for (const r of RUNS.filter((x) => map.runs.includes(x.id))) {
     const before = situation(run, scenario, page, py.lastArrival - 1);
     check(s && s.text === `All ${py.n} trains have arrived` && s.short === `All ${py.n} trains arrived` && !(before && /^All/.test(before.text)), `${tag}: the map says all trains arrived from step ${py.lastArrival}, not before (${s?.text} / ${s?.short})`);
   }
+  // With malfunctions: wherever no gridlock, no arrival of all and fewer than two blocked trains say
+  // more, the map says how many trains stand broken down on the network, as Python's states count them.
+  if (malf) {
+    let said = 0;
+    let wrong = null;
+    for (let t = 1; t <= py.steps && !wrong; t += 1) {
+      const s = situation(run, scenario, page, t);
+      const tone = s?.tone;
+      if (tone === "danger" || tone === "success") continue;
+      const k = py.brokenOnMap[t];
+      if (k > 0) {
+        const want = `${k} ${k === 1 ? "train" : "trains"} broken down on the network`;
+        if (!s || s.text !== want || s.tone !== "broken") wrong = `step ${t}: "${s?.text}", Python has ${k} broken down`;
+        said += 1;
+      } else if (s && s.tone === "broken") wrong = `step ${t}: "${s.text}", Python has none broken down`;
+    }
+    check(!wrong && said > 0, `${tag}: the map's line counts the trains broken down on the network as Python does, at ${said} steps${wrong ? `; ${wrong}` : ""}`);
+    // The moment: the train, where it breaks down (the station whose platform it stands on, as the
+    // trace has it, or between stations), for how long, and the run's breakdowns in all.
+    const m = at("breakdown");
+    const b = py.firstBreakdownOnMap;
+    const where = b ? (b.stop > 0 ? ` at ${network.stationName(network.trains[b.train].stops[b.stop])}` : " between stations") : " before it enters the network";
+    const want = b
+      ? `${network.trains[b.train].name} breaks down${where} and stands where it is for ${b.steps} steps. In all ${py.breakdowns.toLocaleString("en-US")} breakdowns hit the run's trains${py.firstBreakdown !== b ? ", the first of them while trains still waited to enter" : ""}:`
+      : `${network.trains[py.firstBreakdown.train].name} breaks down${where} and cannot enter for ${py.firstBreakdown.steps} steps.`;
+    check(m && m.title === (b ? "The first breakdown on the network" : "The first breakdown") && m.text.startsWith(want), `${tag}: the breakdown's moment says "${want}" (${m?.text.slice(0, 160)}…)`);
+  } else {
+    check(!page.breakdowns && !list.some((m) => m.kind === "breakdown"), `${tag}: no breakdown without malfunctions`);
+  }
+}
 }
 }
 

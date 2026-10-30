@@ -75,6 +75,15 @@
 .train[data-motion="standing"][data-tone="late"] .train-hex { fill: var(--vc-warning-border); stroke-width: 0.2; }
 .train[data-motion="standing"][data-tone="blocked"] .train-hex { fill: var(--vc-danger-bg); stroke: var(--vc-danger-solid); }
 .train[data-motion="standing"][data-tone="blocked"] .train-num { fill: var(--vc-danger-text); }
+/* Broken down (malfunctions on): it stands, hatched like a closed track, in the danger family's solid
+   step, the only hatched state; its number sits on a halo of the surface so the stripes never cross
+   it. The hatch is the pattern #dl-hatch (js/ui/map.js), drawn in each marker's own units. */
+.train[data-tone="broken"] .train-hex,
+.train[data-motion="standing"][data-tone="broken"] .train-hex { fill: url(#dl-hatch); stroke: var(--vc-danger-solid); stroke-width: 0.26; }
+.train[data-tone="broken"] .train-num { fill: var(--vc-text); stroke: var(--vc-surface); stroke-width: 0.24; stroke-linejoin: bevel; paint-order: stroke; }
+.hatch-ground { fill: var(--vc-surface); }
+.hatch-stripe { fill: var(--vc-danger-solid); }
+.svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 /* The selected train: an ink ring around it. */
 .train[data-selected="true"] .train-ring { display: inline; stroke: var(--vc-text); stroke-width: 0.18; }
@@ -115,6 +124,9 @@
 .cap-situation[data-tone="danger"] .cap-dot { background: var(--vc-danger-solid); }
 .cap-situation[data-tone="success"] { color: var(--vc-success-text); }
 .cap-situation[data-tone="success"] .cap-dot { background: var(--vc-success-solid); }
+/* Trains broken down: the danger family, its marker hatched like the trains it counts. */
+.cap-situation[data-tone="broken"] { color: var(--vc-danger-text); }
+.cap-situation[data-tone="broken"] .cap-dot { background: repeating-linear-gradient(-45deg, var(--vc-danger-solid) 0 2px, var(--vc-surface) 2px 3.5px); }
 
 /* ---- the tools: the views and the grid switch (floating, as Rebate Hunter's board views) ---------- */
 /* The caption keeps clear of them: their width is measured by js/ui/map.js (--tools-span). */
@@ -148,6 +160,8 @@
 .legend-swatch[data-tone="blocked"] .train-alert { display: inline; stroke: var(--vc-danger-solid); stroke-width: 0.14; stroke-dasharray: 0.35 0.25; }
 .legend-swatch[data-motion="standing"] .train-hex { fill: var(--vc-surface); stroke-width: 0.26; }
 .legend-swatch[data-motion="standing"][data-tone="blocked"] .train-hex { fill: var(--vc-danger-bg); }
+.legend-swatch[data-tone="broken"] .train-hex,
+.legend-swatch[data-motion="standing"][data-tone="broken"] .train-hex { fill: url(#dl-hatch); stroke: var(--vc-danger-solid); stroke-width: 0.26; }
 .legend-line { width: 28px; height: 12px; flex: none; overflow: visible; }
 .legend-line path { fill: none; stroke: var(--vc-neutral-solid); stroke-width: 2.4px; stroke-linecap: square; stroke-linejoin: miter; }
 .legend-line.buffer path { stroke-linecap: butt; }
@@ -197,5 +211,7 @@
   .grid-lines { forced-color-adjust: none; stroke: GrayText; }
   .track, .buffer, .platform, .level-free { forced-color-adjust: none; stroke: CanvasText; }
   .train-hex { forced-color-adjust: none; stroke: CanvasText; }
+  .hatch-ground { forced-color-adjust: none; fill: Canvas; }
+  .hatch-stripe { forced-color-adjust: none; fill: CanvasText; }
   .train-num, .station-label { forced-color-adjust: none; fill: CanvasText; stroke: Canvas; }
 }

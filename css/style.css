@@ -130,6 +130,10 @@ html { font-size: clamp(93.75%, 0.48vw + 50%, 112.5%); }
 .control-group { display: flex; align-items: center; gap: 8px; }
 .control-label { color: var(--vc-text-muted); font-size: var(--vc-font-size-sm); white-space: nowrap; }
 
+/* The Malfunctions switch beside the runs: one toggle, pressed while trains break down (the
+   challenge's malfunctions); its zap takes the danger tone of a broken-down train while it is on. */
+.malf-switch button { gap: 6px; padding: 0 12px; }
+.malf-switch button[aria-pressed="true"] .vc-icon { color: var(--vc-danger-solid); }
 /* The timeline: the step on screen and Vici's slider (a hexagon thumb), taking the bar's free room. */
 .timeline { display: flex; align-items: center; gap: 12px; flex: 1 1 220px; min-width: 200px; }
 /* Wide enough for "Step 1,248 of 1,248" (9.65 em), so the label never runs under the slider and
@@ -285,6 +289,11 @@ html { font-size: clamp(93.75%, 0.48vw + 50%, 112.5%); }
   .timeline { flex-basis: 100%; order: 10; }
   .run-switch { width: 100%; }
   .run-switch button { flex: 1 1 0; padding: 0 6px; }
+  /* The Malfunctions switch drops under the run switch, across the bar. */
+  .controls > .control-group:first-child { flex-wrap: wrap; width: 100%; }
+  .controls > .control-group:first-child > .vc-tooltip-anchor { flex: 1 1 100%; }
+  .malf-switch { width: 100%; }
+  .malf-switch button { flex: 1 1 0; }
   /* The caption, its situation line, the views and the wrapped legend take more of a phone's map
      panel: it is taller, so the drawing keeps a usable size. */
   .map-panel { height: max(66vh, 430px); }

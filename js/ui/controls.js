@@ -1,6 +1,7 @@
-// The control bar: which run is on screen, playback (the one solid merlot button), stepping, the
-// playback speed, the timeline and the playback status. The run switch and the speed are groups of
-// toggle buttons with aria-pressed (Rebate Hunter's segmented look); this module owns them.
+// The control bar: which run is on screen, whether the challenge's malfunctions are on, playback (the
+// one solid merlot button), stepping, the playback speed, the timeline and the playback status. The
+// run switch, the Malfunctions switch and the speed are groups of toggle buttons with aria-pressed
+// (Rebate Hunter's segmented look); this module owns them.
 
 import { h, withTooltip } from "../dom.js";
 import { icon } from "../icons.js";
@@ -12,8 +13,11 @@ export const SPEEDS = [
   { id: 16, label: "×16", stepsPerSecond: 128 }
 ];
 
-/** runList: the runs of the map on screen (js/runs.js entries, in their order). */
-export function createControls(root, runList, handlers) {
+/**
+ * runList: the runs of the map on screen (js/runs.js entries, in their order). malfunctions: whether
+ * they ran with the challenge's malfunctions on (and the seed); handlers.onMalfunctions switches.
+ */
+export function createControls(root, runList, handlers, malfunctions = { on: false }) {
   // Run switch.
   const runButtons = new Map();
   const runSwitch = h("div", { class: "segmented run-switch", role: "group", "aria-label": "Run on screen", dataset: { runs: String(runList.length) } },
@@ -25,6 +29,16 @@ export function createControls(root, runList, handlers) {
       runButtons.set(r.id, { b, scoreEl });
       return b;
     }));
+
+  // The Malfunctions switch: one toggle, pressed while the runs on screen have the challenge's
+  // malfunctions on. It loads the same map with them on or off, at the same run and step (js/main.js).
+  // Its name stays "Malfunctions"; its tooltip says what it does.
+  const malfButton = h("button", { type: "button", id: "btn-malfunctions", "aria-pressed": String(malfunctions.on), "aria-describedby": "tip-malfunctions" },
+    icon("zap", 16), h("span", { class: "btn-text" }, "Malfunctions"));
+  malfButton.addEventListener("click", () => handlers.onMalfunctions?.());
+  const malfTip = h("span", { class: "vc-tooltip", role: "tooltip", id: "tip-malfunctions" },
+    malfunctions.on ? `On: trains break down at random, as with the challenge's malfunctions (seed ${malfunctions.seed}). Click to switch them off.` : "Off, as in the challenge's runner. Click to let trains break down at random, as with the challenge's malfunctions on.");
+  const malfSwitch = h("span", { class: "vc-tooltip-anchor" }, h("div", { class: "segmented malf-switch", role: "group", "aria-label": "Malfunctions" }, malfButton), malfTip);
 
   // Playback.
   const play = h("button", { class: "vc-button play-btn", type: "button", id: "btn-play" }, icon("play", 18), h("span", { class: "btn-text" }, "Play"));
@@ -60,7 +74,7 @@ export function createControls(root, runList, handlers) {
   const status = h("span", { class: "vc-tag status-pill", role: "status", dataset: { tone: "idle" } }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "text" }, "Paused"));
 
   root.append(
-    h("div", { class: "control-group" }, h("span", { class: "control-label", id: "run-label" }, "Run"), runSwitch),
+    h("div", { class: "control-group" }, h("span", { class: "control-label", id: "run-label" }, "Run"), runSwitch, malfSwitch),
     play,
     steppers,
     h("div", { class: "control-group" }, h("span", { class: "control-label" }, "Speed"), speed),

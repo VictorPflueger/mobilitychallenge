@@ -16,7 +16,9 @@
 //             changed cells) fails the moving check in every run, and a drawing at the distance
 //             Python's speed counter has covered in the cell fails the standing check
 // Köln's six S-Bahn loops start on their destination and are done the moment they enter: they are
-// never on the map, in Python's record or in the drawing.
+// never on the map, in Python's record or in the drawing. Every run is checked a second time with
+// malfunctions on (trace_<run>_malfunctions.json): a train broken down stands, so it must be drawn
+// still at the centre of its cell, as the standing check demands of every train Python has standing.
 // Usage: node tests/glide.mjs [--map frankfurt|koeln]
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
@@ -25,7 +27,7 @@ import { describe } from "../js/network.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson } from "./lib/trace-facts.mjs";
-import { MAPS, fixturePath, mapPath, parseCases, planPath, referencePath } from "./lib/maps.mjs";
+import { MAPS, VARIANTS, fixturePath, malfunctionsPath, mapPath, parseCases, planPath, referencePath, runFile } from "./lib/maps.mjs";
 
 const MOVING = 3;
 const DONE = 6;
@@ -118,7 +120,7 @@ function checkMap(mapId) {
   const cellOf = (p) => rail.index(p[0], p[1]);
   const controllers = {
     baseline: () => new OrderedController(),
-    optimized: () => new ReplayController(readJson(planPath(mapId)), "optimized")
+    optimized: (variant) => new ReplayController(readJson(planPath(mapId, variant)), "optimized")
   };
   // The trains at half a cell per step: Neu-Frankfurt's three S-Bahns; on Köln every Local train
   // (0.6 in the file, which Flatland rounds to 0.5), the S-Bahn loops among them.
@@ -130,13 +132,21 @@ function checkMap(mapId) {
   const atTarget = scenario.agents.filter((a) => a.initialPos === a.target).map((a) => a.handle);
   check(mapId === "frankfurt" ? atTarget.length === 0 : atTarget.length === 6, `${mapId}: ${atTarget.length ? `trains ${atTarget.join(", ")} start on their destination` : "no train starts on its destination"}`);
   const reference = readJson(referencePath(mapId));
-  for (const id of MAPS[mapId].runs) checkRun(mapId, id, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id](), { bookings: reference.runs[id].bookings }) });
+  for (const variant of VARIANTS) {
+    const malf = variant === "malfunctions";
+    const record = malf ? reference.malfunctions.runs : reference.runs;
+    const draws = malf ? readJson(malfunctionsPath(mapId)).draws : null;
+    for (const id of MAPS[mapId].runs) {
+      checkRun(mapId, id, variant, { scenario, rail, cellOf, sbahns, atTarget, run: simulate(scenario, controllers[id](variant), { bookings: record[id].bookings, malfunctions: draws }) });
+    }
+  }
 }
 
-function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run }) {
+function checkRun(mapId, runId, variant, { scenario, rail, cellOf, sbahns, atTarget, run }) {
   // On Neu-Frankfurt the messages name the run alone, as before Köln was added.
-  const id = mapId === "frankfurt" ? runId : `${mapId} ${runId}`;
-  const fx = readJson(fixturePath(mapId, `trace_${runId}.json`));
+  const malf = variant === "malfunctions";
+  const id = `${mapId === "frankfurt" ? runId : `${mapId} ${runId}`}${malf ? " with malfunctions" : ""}`;
+  const fx = readJson(fixturePath(mapId, `trace_${runFile(runId, variant)}.json`));
   const rows = [fx.initial, ...fx.trace];
   const T = fx.steps;
   const n = scenario.agents.length;
@@ -193,6 +203,21 @@ function checkRun(mapId, runId, { scenario, rail, cellOf, sbahns, atTarget, run 
   check(missing.length === 0, `${id}: every train on the map in Python's record is drawn (${missing.slice(0, 5).join("; ") || "all"})`);
   const st = standingCheck(drawn, rows, T, n);
   check(st.moved.length === 0 && st.off.length === 0, `${id}: in all ${st.standing} steps Python has a train standing, it is drawn still at the centre of its cell (${[...st.moved, ...st.off].slice(0, 5).join("; ") || "none off"})`);
+  if (malf) {
+    // the broken-down trains among them: Python has them in MALFUNCTION on the map
+    let broken = 0;
+    const brokenMoved = [];
+    for (let t = 0; t < T; t += 1) {
+      for (let i = 0; i < n; i += 1) {
+        const q = rows[t + 1].pos[i];
+        if (!rows[t].pos[i] || !q || rows[t + 1].state[i] !== 5) continue;
+        broken += 1;
+        const { pts, length } = stepPath(drawn, i, t);
+        if (length > EPS || pts.some((x) => !x || dist(x, centre(q)) > EPS)) brokenMoved.push(`train ${i} step ${t + 1}`);
+      }
+    }
+    check(broken > 0 && brokenMoved.length === 0, `${id}: in all ${broken} steps a train stands broken down on the network, it is drawn still at the centre of its cell (${brokenMoved.slice(0, 5).join("; ") || "all"})`);
+  }
   check(fullSteps > 0 && fullBad.length === 0, `${id}: in all ${fullSteps} steps of running at full speed a train is drawn a cell per step, at the centre of its cell at each step (${fullBad.slice(0, 5).join("; ") || "none off"})`);
   check(halfSteps > 0 && halfBad.length === 0, `${id}: in all ${halfSteps} steps of running steadily at half speed (only ${mapId === "frankfurt" ? "the S-Bahns" : "the local trains"} do), a train is drawn exactly half a cell per step, as far as Python moves it (${halfBad.slice(0, 5).join("; ") || "all exact"})`);
   check(farthest < 1, `${id}: at every step a train is drawn less than a cell from the centre of the cell Python has it in (farthest ${farthest.toFixed(3)})`);

@@ -58,8 +58,28 @@ export function runFacts(run, scenario) {
     if (arrivals[i] !== null && arrivals[i] > a.latestArrival) { lateTrains += 1; lateSteps += arrivals[i] - a.latestArrival; }
   });
 
+  // Breakdowns, with malfunctions on: every one that hit a train before it was done (js/sim.js), the
+  // train-steps trains stood broken down, and the train hit most often (the first of them on a tie).
+  const breakdowns = [];
+  (run.breakdowns || []).forEach((list, i) => list.forEach((b) => breakdowns.push({ ...b, train: i })));
+  breakdowns.sort((x, y) => x.step - y.step || x.train - y.train);
+  let brokenSteps = 0;
+  for (let t = 1; t <= T; t += 1) {
+    for (let i = 0; i < n; i += 1) {
+      const st = f.state[t * n + i];
+      if (st === STATE.MALFUNCTION || st === STATE.MALFUNCTION_OFF_MAP) brokenSteps += 1;
+    }
+  }
+  const hits = agents.map((_, i) => (run.breakdowns ? run.breakdowns[i].length : 0));
+  const most = hits.reduce((best, c, i) => (c > hits[best] ? i : best), 0);
+
   return {
     n, steps: T, arrived, lastArrival, arrivals,
+    malfunctions: Boolean(run.malfunctions),
+    breakdowns: breakdowns.length, firstBreakdown: breakdowns[0] || null, brokenSteps,
+    // the first breakdown of a train on the network: the first there is to see on the map
+    firstBreakdownOnMap: breakdowns.find((b) => !b.offMap) || null,
+    mostBroken: breakdowns.length ? { train: most, count: hits[most] } : null,
     collisions: collisions.length,
     firstCollision: collisions.length ? { step: collisions[0].step, train: collisions[0].agent, value: collisions[0].value } : null,
     lastChange, gridlockFrom, stuck: onMapAtEnd.length, notDeparted: leftOver.length - onMapAtEnd.length,
@@ -84,6 +104,20 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario))
     out.push({
       step: enter.step, kind: "enter", train: enter.train, title: "The first train enters",
       text: `${trainName(network, enter.train)} sets off from ${network.stationName(network.trains[enter.train].stops[0])}. ${plural(facts.n, "train")} have ${count(facts.stops)} stops to serve between them.`
+    });
+  }
+
+  // With malfunctions on: the first breakdown on the network (the first there is to see on the map;
+  // trains waiting to enter break down too, unseen), and how many hit the run's trains in all.
+  if (facts.firstBreakdown) {
+    const onMap = facts.firstBreakdownOnMap;
+    const b = onMap || facts.firstBreakdown;
+    const at = onMap && run.events.find((e) => e.kind === "breakdown" && e.step === b.step && e.train === b.train);
+    const where = !onMap ? " before it enters the network" : at && at.onPlatform ? ` at ${stopName(network, b.train, at.onPlatform)}` : " between stations";
+    const all = facts.breakdowns === 1 ? "It is the run's only breakdown" : `In all ${count(facts.breakdowns)} breakdowns hit the run's trains${onMap && facts.firstBreakdown !== onMap ? ", the first of them while trains still waited to enter" : ""}`;
+    out.push({
+      step: b.step, kind: "breakdown", train: b.train, title: onMap ? "The first breakdown on the network" : "The first breakdown",
+      text: `${trainName(network, b.train)} breaks down${where} and ${onMap ? "stands where it is" : "cannot enter"} for ${plural(b.steps, "step")}. ${all}: the challenge's malfunctions strike trains at random, whatever the dispatcher does.`
     });
   }
 
@@ -164,7 +198,7 @@ export function moments(run, scenario, network, facts = runFacts(run, scenario))
     text: `${count(facts.arrived)} of ${count(facts.n)} trains arrived and ${count(facts.served)} of ${count(facts.stops)} stops were served. Score: ${score(run.score)}.`
   });
 
-  const order = { enter: 0, "at-target": 1, collision: 1, pass: 2, stop: 2, wait: 3, gridlock: 4, arrive: 5, "all-arrived": 6, end: 7 };
+  const order = { enter: 0, "at-target": 1, breakdown: 1, collision: 1, pass: 2, stop: 2, wait: 3, gridlock: 4, arrive: 5, "all-arrived": 6, end: 7 };
   out.sort((a, b) => a.step - b.step || order[a.kind] - order[b.kind]);
   return out;
 }
@@ -184,6 +218,12 @@ export function situation(run, scenario, facts, t) {
   for (let i = 0; i < n; i += 1) if (f.blocked[step * n + i]) blocked += 1;
   if (blocked >= 2) {
     return { tone: "danger", text: `${plural(blocked, "train")} held back by trains in their way`, short: `${plural(blocked, "train")} held back` };
+  }
+  // With malfunctions on: trains broken down on the network.
+  let broken = 0;
+  for (let i = 0; i < n; i += 1) if (f.state[step * n + i] === STATE.MALFUNCTION) broken += 1;
+  if (broken) {
+    return { tone: "broken", text: `${plural(broken, "train")} broken down on the network`, short: `${plural(broken, "train")} broken down` };
   }
   let waiting = 0;
   facts.waits.forEach((w) => {

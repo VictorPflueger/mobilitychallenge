@@ -2,7 +2,9 @@
 // with its train state machine and speed counter (envs/step_utils/), the challenge's reward
 // function (src/rewards_fix.py) and its "balanced" penalties (src/scaled_penalties.py), loaded the
 // way src/scenario_loader.py loads a map. Ported line by line; tests/engine.mjs compares every
-// step with the Python environment. Malfunctions are off, as in the challenge's runner.
+// step with the Python environment. Malfunctions are off, as in the challenge's runner, unless the
+// environment is given the draws of flatland's malfunction generator (option malfunctions): then
+// trains break down where the Python run's did (see the constructor).
 
 import { ACTION, Rail, computeDistanceMaps, shortestPathLength } from "./rail.js";
 import { MotionCheck } from "./motion.js";
@@ -78,7 +80,7 @@ export class RailEnv {
    * tools/export_fixtures.py records them in data/<map>/reference.json:
    * [{ agent, stop, booked: [row, column, direction] }] (see stopArrival).
    */
-  constructor(scenario, { accelerationDelta = ACCELERATION, brakingDelta = BRAKING, bookings = [] } = {}) {
+  constructor(scenario, { accelerationDelta = ACCELERATION, brakingDelta = BRAKING, bookings = [], malfunctions = null } = {}) {
     this.scenario = scenario;
     this.rail = scenario.rail;
     this.levelFree = scenario.levelFree;
@@ -88,6 +90,21 @@ export class RailEnv {
     this.brakingDelta = brakingDelta;
     this.distanceMaps = computeDistanceMaps(this.rail, scenario.agents.map((a) => a.target));
     this.bookings = new Map(bookings.map((b) => [`${b.agent}:${b.stop}`, RailEnv.wpKey(this.rail.index(b.booked[0], b.booked[1]), b.booked[2])]));
+    // malfunctions: the draws of flatland's malfunction generator (ParamMalfunctionGen, which the
+    // challenge's loader builds with use_malfunctions=True), as tools/export_fixtures.py records them
+    // in data/<map>/malfunctions.json: [[step, train, broken steps], ...] for every draw that breaks
+    // a train down. Flatland draws for every train in every step, whatever the trains do, from a
+    // generator seeded once, so the draws are the same for every dispatcher; the browser cannot
+    // repeat numpy's generator and replays them instead. Every step starts by applying that step's
+    // draws (step), as MalfunctionEffectsGenerator.on_episode_step_start does.
+    this.malfunctionDraws = new Map();
+    for (const [step, train, broken] of malfunctions || []) {
+      if (!Number.isInteger(step) || step < 1 || !Number.isInteger(train) || train < 0 || train >= scenario.agents.length || !Number.isInteger(broken) || broken < 1) {
+        throw new Error(`malfunction draw [${step}, ${train}, ${broken}] is not [step, train, broken steps]`);
+      }
+      if (!this.malfunctionDraws.has(step)) this.malfunctionDraws.set(step, []);
+      this.malfunctionDraws.get(step).push([train, broken]);
+    }
     this.ledger = null;
   }
 
@@ -104,8 +121,9 @@ export class RailEnv {
       distance: 0,
       isCellEntry: true,
       arrivalTime: null,
-      malfunctionDown: 0,
-      sig: { inMalfunction: false, earliestDepartureReached: false, stopActionGiven: false, movementActionGiven: false, targetReached: false, movementAllowed: false, newSpeedZero: false }
+      malfunctionDown: 0, // MalfunctionHandler.malfunction_down_counter
+      malfunctions: 0, // MalfunctionHandler.num_malfunctions
+      sig:{ inMalfunction: false, earliestDepartureReached: false, stopActionGiven: false, movementActionGiven: false, targetReached: false, movementAllowed: false, newSpeedZero: false }
     }));
     this.elapsed = 0;
     this.dones = this.agents.map(() => false);
@@ -198,6 +216,12 @@ export class RailEnv {
     const rewards = this.agents.map(() => int(0));
     const motion = new MotionCheck();
     const data = new Array(this.agents.length);
+
+    // effects_generator.on_episode_step_start: MalfunctionHandler.generate_malfunction for every train,
+    // in order. A draw sets the train's counter only when no breakdown is running
+    // (_set_malfunction_down_counter); the counter goes down by one at the end of every step, below.
+    const draws = this.malfunctionDraws.get(this.elapsed);
+    if (draws) for (const [i, broken] of draws) this.generateMalfunction(this.agents[i], broken);
 
     for (const agent of this.agents) {
       const i = agent.handle;
@@ -296,6 +320,14 @@ export class RailEnv {
     this.verifyResources();
     this.lastStep = data;
     return rewards;
+  }
+
+  /** MalfunctionHandler.generate_malfunction for a draw that breaks the train down for `broken` steps. */
+  generateMalfunction(agent, broken) {
+    if (agent.malfunctionDown === 0) { // _set_malfunction_down_counter: only once the last breakdown is over
+      agent.malfunctionDown = broken;
+      agent.malfunctions += 1;
+    }
   }
 
   verifyResources() {

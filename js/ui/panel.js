@@ -7,7 +7,7 @@ import { icon } from "../icons.js";
 import { amount, count, exactScore, plural, points, score } from "../format.js";
 import { KINDS, breakdown, trainStatus } from "../sim.js";
 import { moments, runFacts } from "../story.js";
-import { runById } from "../runs.js";
+import { runById, runText } from "../runs.js";
 import { comparison, inWords, scoreOverTime } from "./charts.js";
 import { trainSwatch, trackGlyph } from "./map.js";
 import { RailEnv, STATE, balancedPenalties } from "../engine/env.js";
@@ -24,6 +24,9 @@ const TABS = [
 
 export function createPanel(root, ctx) {
   const { map, runList, scenario, network, runs, verified, reference, floor } = ctx;
+  // With malfunctions on (the Malfunctions switch beside the runs), the runs met the breakdowns of data/<map>/malfunctions.json.
+  const malfunctions = ctx.malfunctions || { on: false };
+  const M = malfunctions.on;
   // The penalties as the challenge scales them to this map's episode (1,248 or 1,710 steps).
   const P = balancedPenalties(scenario.maxSteps);
 
@@ -142,7 +145,7 @@ export function createPanel(root, ctx) {
 
   function renderStory() {
     const id = state.run;
-    const r = runById(id);
+    const r = runText(id, M);
     const run = runs.get(id);
     const { facts, moments: list } = storyOf(id);
     if (storyFor !== id) {
@@ -167,6 +170,7 @@ export function createPanel(root, ctx) {
             h("li", {}, h("strong", {}, `${count(facts.arrived)} / ${count(facts.n)}`), h("span", {}, "trains arrived")),
             h("li", {}, h("strong", {}, `${count(facts.served)} / ${count(facts.stops)}`), h("span", {}, "stops served")),
             h("li", {}, h("strong", {}, count(facts.collisions)), h("span", {}, facts.collisions === 1 ? "collision" : "collisions")),
+            M ? h("li", {}, h("strong", {}, count(facts.breakdowns)), h("span", {}, facts.breakdowns === 1 ? "breakdown" : "breakdowns")) : null,
             h("li", {}, h("strong", {}, score(run.score)), h("span", {}, "score")))),
         h("section", {},
           h("h3", {}, "What happens"),
@@ -174,6 +178,7 @@ export function createPanel(root, ctx) {
           h("ol", { class: "story-moments" }, momentButtons.map((b) => h("li", {}, b)))),
         h("section", {},
           h("h3", {}, `Why it scores ${score(run.score)}`),
+          M ? h("p", { class: "story-normal" }, withoutMalfunctions(id, run)) : null,
           lost.length
             ? h("ul", { class: "story-why" }, lost.slice(0, 4).map((k) => h("li", { dataset: { tone: k.tone } },
               h("span", { class: "story-why-share" }, `${Math.round((Math.abs(k.value) / total) * 100)} %`),
@@ -194,6 +199,22 @@ export function createPanel(root, ctx) {
     });
   }
 
+  /**
+   * With malfunctions on: the run's score against the same run without them (the Python runner's,
+   * reference.json), what the breakdowns cost and the factor between the two.
+   */
+  function withoutMalfunctions(id, run) {
+    const normal = reference.normal?.runs[id]?.reward;
+    if (normal === undefined) return "";
+    const label = runById(id).label.toLowerCase();
+    const diff = normal - run.score;
+    const factor = run.score / normal;
+    const fx = `×${factor.toFixed(2)}`;
+    return diff >= 0
+      ? `Without malfunctions the ${label} run scores ${score(normal)}: the breakdowns cost it ${amount(diff)} points (${fx}). A breakdown has no penalty of its own; it costs the delays and lost stops it causes.`
+      : `Without malfunctions the ${label} run scores ${score(normal)}: with them it loses ${amount(-diff)} points fewer (${fx}). A breakdown has no penalty of its own; here the trains it holds up run into fewer others.`;
+  }
+
   // ---- Score -------------------------------------------------------------------------------------
   const scoreChart = scoreOverTime(runs, { map, runList });
   const compareHolder = h("div", { class: "compare-holder" });
@@ -201,7 +222,7 @@ export function createPanel(root, ctx) {
   panels.get("score").append(compareHolder, breakdownHolder, scoreChart.el);
 
   function renderCompare() {
-    clear(compareHolder).appendChild(comparison(runs, { map, runList, selected: state.run, verified, onPick: (id) => ctx.onRun(id) }));
+    clear(compareHolder).appendChild(comparison(runs, { map, runList, selected: state.run, verified, malfunctions, onPick: (id) => ctx.onRun(id) }));
   }
 
   function renderBreakdown() {
@@ -369,6 +390,7 @@ export function createPanel(root, ctx) {
       case "leave": return { text: `leaves ${stName(e.stop)}${e.early ? `, ${e.early} steps early` : ""}`, tone: e.early ? "late" : "" };
       case "pass": return { text: `runs through ${stName(e.stop)} without stopping`, tone: "lost" };
       case "collision": return { text: `is stopped by a train in its way: ${score(e.value)}`, tone: "lost" };
+      case "breakdown": return { text: `breaks down${e.offMap ? " before entering" : e.onPlatform ? ` at ${stName(e.onPlatform)}` : ""}, for ${plural(e.steps, "step")}`, tone: "broken" };
       case "arrive": return { text: `arrives at ${tr.to}${e.late ? `, ${e.late} steps late` : " on time"}`, tone: e.late ? "late" : "ok" };
       case "account": {
         const sum = e.items.reduce((s, x) => s + x.value, 0);
@@ -412,7 +434,7 @@ export function createPanel(root, ctx) {
   renderMethod();
   function renderMethod() {
     const p = panels.get("method");
-    const runsInfo = runList.map((r) => h("li", { dataset: { run: r.id } },
+    const runsInfo = runList.map((r0) => runText(r0.id, M)).map((r) => h("li", { dataset: { run: r.id } },
       h("div", { class: "method-run-head" }, h("span", { class: "run-swatch", "aria-hidden": "true" }), h("strong", {}, r.title)),
       h("p", {}, r.does), h("p", { class: "muted" }, r.how)));
     const ref = reference;
@@ -428,7 +450,7 @@ export function createPanel(root, ctx) {
         h("h3", {}, "What runs in your browser"),
         h("p", {}, `The challenge's Python environment, flatland-rl 4.2.2 with the challenge's reward rules, ported to JavaScript line by line: the trains' acceleration and braking, the state machine, how conflicts between trains are resolved, the level-free crossings and every penalty. When the page opens, it simulates the ${nRuns} runs of ${map.name} and scores them itself.`),
         h("h3", {}, "How it is checked"),
-        h("p", {}, `The port was compared with the Python runner step by step: every train's position, direction, state, speed and reward ${stepsText}, with no tolerance. The scores match to the last digit, and so does every line of the breakdown under Score: each penalty term was checked against the terms the Python reward function itself computes. Planted errors in the dynamics, the conflict rule, the map, a penalty or the breakdown are caught by the same comparison.`),
+        h("p", {}, `The port was compared with the Python runner step by step: every train's position, direction, state, speed${M ? ", malfunction counter" : ""} and reward ${stepsText}, with no tolerance. The scores match to the last digit, and so does every line of the breakdown under Score: each penalty term was checked against the terms the Python reward function itself computes. Planted errors in the dynamics, the conflict rule, the map, a penalty or the breakdown are caught by the same comparison.`),
         h("p", { class: "method-check" }, icon("check", 16), `Python ${ref.python}, flatland-rl ${ref.flatland}; scores ${runList.map((r) => `${r.label.toLowerCase()} ${score(ref.runs[r.id].reward)}`).join(", ")}.`),
         h("h3", {}, "The runs"),
         h("ul", { class: "method-runs" }, runsInfo),
@@ -439,6 +461,7 @@ export function createPanel(root, ctx) {
           symbol(trainSwatch("ontime", "standing"), "Standing", "stopped at a platform or holding, on time."),
           symbol(trainSwatch("blocked", "moving"), "Blocked", "it would move on, but a train is in its way."),
           symbol(trainSwatch("blocked", "standing"), "Stuck", "standing still for 40 steps or more past its time."),
+          M ? symbol(trainSwatch("broken", "standing"), "Broken down", `a malfunction holds it where it is, for ${malfunctions.brokenSteps[0]} to ${malfunctions.brokenSteps[1]} steps.`) : null,
           symbol(trackGlyph("track"), "Track", "45° corners are switches and curves."),
           symbol(trackGlyph("crossing"), "Level-free crossing", "tracks cross at different levels, so trains on them never conflict."),
           symbol(trackGlyph("platform"), "Platforms", "a station's platforms; the stops of the train picked in the Trains tab get an ink frame."),
@@ -454,6 +477,7 @@ export function createPanel(root, ctx) {
         h("p", {}, "A collision is booked at once; a train's stops and its delay when it reaches its destination, or at the end for a train still on its way. So the score at a step lags behind what the map shows."),
         ...runList.map((r) => hashOrderSentence(r)).filter(Boolean).map((text) => h("p", { class: "method-hash" }, text)),
         h("p", {}, floorSentence()),
+        ...malfunctionSection(),
         h("h3", {}, "Limits"),
         h("p", {}, limitsText()),
         h("p", { class: "muted" }, `The map is the challenge's data/maps/${map.file}, unchanged. Station names come from its line names; stations no line names stay numbered.`)));
@@ -561,8 +585,63 @@ export function createPanel(root, ctx) {
 
     // What the page does not do: the planner ran in Python; the leaderboard's figure is not simulated.
     function limitsText() {
-      return "The optimized run's planner does not run in your browser: it ran in Python (a few minutes of search), and the page replays the actions it gave each train. Malfunctions are off, as in the challenge's runner." +
+      const malf = M
+        ? ` With malfunctions on, the page shows the breakdowns of one seed (${malfunctions.seed}), replayed from Python; other seeds break other trains down at other steps and give other scores (above).`
+        : " Malfunctions are off, as in the challenge's runner; the Malfunctions switch beside the runs turns them on.";
+      return `The optimized run's planner does not run in your browser: it ran in Python (a few minutes of search), and the page replays the actions it gave each train.${malf}` +
         ` The leaderboard's ${count(map.leaderboard)} is a figure from the project brief, not simulated here: the page shows it on both maps as the target to beat.`;
+    }
+
+    // Malfunctions: how the challenge makes trains break down, how the page repeats it, and how the
+    // two runs fare over the seeds tools/malfunction_test.py tried (data/<map>/malfunction_test.json).
+    function malfunctionSection() {
+      if (!M) {
+        return [h("h3", {}, "Malfunctions"),
+          h("p", {}, "Off, as in the challenge's runner and on its leaderboard. The challenge's loader can switch them on, and its final ran with fixed disruptions (T-Systems' whitepaper, October 2026). The Malfunctions switch beside the runs shows both runs with the loader's malfunctions: trains breaking down at random.")];
+      }
+      const lo = malfunctions.brokenSteps[0];
+      const hi = malfunctions.brokenSteps[1];
+      const pct = (malfunctions.probability * 100).toFixed(1);
+      const out = [
+        h("h3", {}, "Malfunctions"),
+        h("p", {}, `On: trains break down at random, as the challenge's loader makes them when asked (scenario_loader.load(..., use_malfunctions=True), flatland's ParamMalfunctionGen); its runner and the leaderboard run without them, and the fixed disruptions of the challenge's final are not public. In every step every train breaks down with a probability of ${pct} % (1 − e^−${malfunctions.rate}), unless a breakdown is still running, and then stands for ${lo} to ${hi} steps: a train on the network stops where it is, a train not yet on it enters later. A breakdown has no penalty of its own; it costs the delays and the lost stops it causes.`),
+        h("p", {}, `Flatland draws the breakdowns from its own random generator, which the loader seeds from the system, so no two runs of it meet the same ones. The page's runs seed it with ${malfunctions.seed} (env._seed(${malfunctions.seed}) before the episode), so they can be repeated, and both runs meet the same breakdowns: flatland draws for every train in every step, whatever the trains do. Your browser cannot repeat numpy's generator, so it replays the ${count(malfunctions.draws.length)} breakdowns the generator draws over the map's ${count(scenario.maxSteps)} steps, as recorded in Python; a draw that falls on a train already broken down or already arrived changes nothing.`)
+      ];
+      const t = malfunctions.test;
+      if (t && t.seeds.length) out.push(...testSummary(t));
+      return out;
+    }
+
+    function testSummary(t) {
+      const opt = t.seeds.map((r) => ({ seed: r.seed, ...r.optimized }));
+      const base = t.seeds.filter((r) => r.baseline).map((r) => ({ seed: r.seed, ...r.baseline }));
+      const range = (xs) => { const v = xs.map((x) => x.reward).sort((a, b) => a - b); return `${score(v[0])} to ${score(v[v.length - 1])}`; };
+      const median = (xs) => { const v = xs.map((x) => x.reward).sort((a, b) => a - b); const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+      const all = (xs, f) => xs.filter(f).length;
+      const row = (label, b, o) => h("tr", {}, h("th", { scope: "row" }, label), h("td", { class: "num" }, b), h("td", { class: "num" }, o));
+      const shown = opt.find((x) => x.seed === malfunctions.seed);
+      const rank = shown ? opt.map((x) => x.reward).sort((a, b) => b - a).indexOf(shown.reward) + 1 : null;
+      return [
+        h("h3", {}, `The runs over ${plural(opt.length, "seed")}`),
+        h("p", {}, `The same two dispatchers through the challenge's runner with malfunctions on, seeded 1 to ${count(opt.length)} (tools/malfunction_test.py): the optimized run on every seed, the baseline on the first ${count(base.length)}. Each seed breaks other trains down at other steps.`),
+        h("div", { class: "vc-table-wrap" }, h("table", { class: "vc-table vc-table--compact malf-test" },
+          h("caption", { class: "vc-visually-hidden" }, "Both runs with malfunctions on, over many seeds"),
+          h("thead", {}, h("tr", {}, h("th", { scope: "col" }, ""), h("th", { scope: "col", class: "num" }, "Baseline"), h("th", { scope: "col", class: "num" }, "Optimized"))),
+          h("tbody", {},
+            row("Seeds", count(base.length), count(opt.length)),
+            row("Every train arrived", `${count(all(base, (x) => x.arrived === x.trains))} of ${count(base.length)}`, `${count(all(opt, (x) => x.arrived === x.trains))} of ${count(opt.length)}`),
+            row("Without a collision", `${count(all(base, (x) => x.collisions === 0))} of ${count(base.length)}`, `${count(all(opt, (x) => x.collisions === 0))} of ${count(opt.length)}`),
+            row("Score, worst to best", range(base), range(opt)),
+            row("Median score", score(median(base)), score(median(opt))),
+            row("Beats the current best", `${count(all(base, (x) => x.reward > map.leaderboard))} of ${count(base.length)}`, `${count(all(opt, (x) => x.reward > map.leaderboard))} of ${count(opt.length)}`)))),
+        shown ? h("p", { class: "muted" }, `The page shows seed ${malfunctions.seed}, fixed before any result was seen: there the optimized run scores ${score(shown.reward)}, ${ordinalRank(rank)} of the ${count(opt.length)} seeds from the best. Without malfunctions it scores ${score(t.undisturbed.optimized)}.`) : null
+      ];
+    }
+
+    function ordinalRank(n) {
+      const s = ["th", "st", "nd", "rd"];
+      const v = n % 100;
+      return `${count(n)}${s[(v - 20) % 10] || s[v] || s[0]}`;
     }
   }
 

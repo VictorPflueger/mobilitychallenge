@@ -17,12 +17,12 @@ const SUITES = [
   { id: "page-icon", what: "page icon: favicon, header and loading screen", file: "tests/page-icon.mjs" },
   { id: "vici-files", what: "vici/ holds Vici v1.0.0 unchanged", file: "tests/vici-files.mjs" },
   { id: "data", what: "both maps are the challenge's, byte for byte; plans, scores and traces recorded on them", file: "tests/data.mjs", args: ["--challenge", challenge], needs: challenge },
-  { id: "engine", what: "the engine against flatland on both maps: Python semantics, distance maps, every run step by step, the score's terms", file: "tests/engine.mjs" },
+  { id: "engine", what: "the engine against flatland on both maps: Python semantics, distance maps, every run step by step without and with malfunctions, the score's terms", file: "tests/engine.mjs" },
   { id: "negctl", what: "the engine checks catch planted changes", file: "tests/engine-negctl.mjs" },
   { id: "story", what: "the Story tab's figures, moments and situation line against the Python traces", file: "tests/story.mjs" },
   { id: "guide", what: "the guide's figures against the scenario, the challenge's rules and the Python traces", file: "tests/guide.mjs" },
   { id: "glide", what: "the map moves each train at its own speed and keeps a standing train at its cell's centre, against the Python traces of both maps", file: "tests/glide.mjs" },
-  { id: "smoke", what: "boot, playback, runs, panel, map, the grid and its switch, guide, story, glide, motion, failures, the map switch (Chromium)", file: "tests/smoke.mjs", browser: true },
+  { id: "smoke", what: "boot, playback, runs, panel, map, the grid and its switch, guide, story, glide, motion, failures, the map switch, the Malfunctions switch (Chromium)", file: "tests/smoke.mjs", browser: true },
   { id: "layout", what: "viewports from 1920×1080 to 320×640 on both maps, the guides' chapters, touch targets (Chromium)", file: "tests/layout.mjs", browser: true },
   { id: "hexagon", what: "nothing round: the files, and the rendered app in both themes (Chromium)", file: "tests/hexagon.mjs", browser: true }
 ];

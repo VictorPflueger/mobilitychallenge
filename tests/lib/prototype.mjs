@@ -29,6 +29,10 @@ export const COLOUR_PAIRS = [
   ["A stuck train: its outline on the canvas", "danger-solid", "bg-sunken", "mark"],
   ["A stuck train: its number", "danger-text", "danger-bg", "text"],
   ["The selected train's ring on the canvas", "text", "bg-sunken", "mark"],
+  // Malfunctions on: a broken-down train, hatched in the danger family's solid step on the surface.
+  ["A broken-down train: its outline on the canvas", "danger-solid", "bg-sunken", "mark"],
+  ["A broken-down train: its stripes against their ground", "danger-solid", "surface", "mark"],
+  ["A broken-down train: its number on its halo", "text", "surface", "text"],
   // The runs' series colours (Vici's chart palette) on the panel, the tracks and the control bar.
   ["Baseline series (bars, lines, swatches) on panels", "data-8", "surface", "mark"],
   ["Optimized series on panels", "data-2", "surface", "mark"],
@@ -42,6 +46,7 @@ export const COLOUR_PAIRS = [
   ["Breakdown: delays (late, early)", "warning-text", "surface", "mark"],
   ["Train badges: the number in its ink hexagon", "surface", "text", "text"],
   ["Events: a lost stop or a collision, its stripe", "danger-solid", "surface", "mark"],
+  ["Events: a breakdown, its dashed stripe", "danger-solid", "surface", "mark"],
   ["Events: a delay, its stripe", "warning-text", "surface", "mark"],
   ["Events: a stop served, its stripe", "success-solid", "surface", "mark"],
   ["The check of a score (same as the Python runner)", "info-text", "surface", "text"],
@@ -53,14 +58,21 @@ export const COLOUR_PAIRS = [
   ["Legend and Method tab: a train behind its timetable, its outline", "warning-text", "surface", "mark"],
   ["Legend and Method tab: a blocked train, its outline and dashed ring", "danger-solid", "surface", "mark"],
   ["Legend and Method tab: a train on time", "text", "surface", "mark"],
+  ["Legend and Method tab: a broken-down train, its stripes and outline", "danger-solid", "surface", "mark"],
+  // The Malfunctions switch in the control bar: its zap while malfunctions are on, on the pressed button.
+  ["The Malfunctions switch, on: its zap", "danger-solid", "surface", "mark"],
+  ["The Malfunctions switch: its name on the pressed button", "text", "surface", "text"],
+  ["The Malfunctions switch: its name, off", "text-muted", "bg-subtle", "text"],
   // The situation line in the map's caption (on the surface).
   ["Situation line: gridlock, trains held back", "danger-text", "surface", "text"],
+  ["Situation line: trains broken down", "danger-text", "surface", "text"],
+  ["Situation line: its hatched marker, trains broken down", "danger-solid", "surface", "mark"],
   ["Situation line: all trains arrived", "success-text", "surface", "text"],
   ["Situation line: trains waiting", "text-muted", "surface", "text"],
   ["Situation line: its marker, gridlock", "danger-solid", "surface", "mark"],
   ["Situation line: its marker, all arrived", "success-solid", "surface", "mark"],
   // The Story tab (on the surface): the moments' stripes, the moment on screen, the shares.
-  ["Story: a collision, a gridlock, a station passed or a train done as it enters, its stripe", "danger-solid", "surface", "mark"],
+  ["Story: a collision, a gridlock, a station passed, a train done as it enters or a breakdown, its stripe", "danger-solid", "surface", "mark"],
   ["Story: a wait, its stripe", "warning-text", "surface", "mark"],
   ["Story: a stop served, an arrival, its stripe", "success-solid", "surface", "mark"],
   ["Story: the moment on screen, its ink frame", "text", "surface", "mark"],
@@ -97,7 +109,9 @@ export const SEPARATIONS = [
   ["Trains: on time (ink) vs blocked (its danger fill)", "text", "danger-border"],
   ["Trains: behind (warning fill) vs blocked (danger fill)", "warning-border", "danger-border"],
   ["Trains: on time (ink) vs behind (its warning fill)", "text", "warning-border"],
-  ["Trains: standing on time (surface) vs behind (its warning fill)", "surface", "warning-border"]
+  ["Trains: standing on time (surface) vs behind (its warning fill)", "surface", "warning-border"],
+  ["Trains: broken down (its stripes) vs behind (its warning fill)", "danger-solid", "warning-border"],
+  ["Trains: broken down (its stripes) vs on time (ink)", "danger-solid", "text"]
 ];
 
 /**
@@ -175,6 +189,26 @@ export async function hexagonTour(page, visit) {
     await page.click(`.guide-nav-btn[data-chapter="${id}"]`);
     await visit(`Neu-Frankfurt: the guide: ${id}`);
   }
+  await page.keyboard.press("Escape");
+  // Malfunctions on, from the switch beside the runs: hatched broken-down trains, the situation line,
+  // the breakdowns among the events, the method with the test, and the guide's note.
+  await page.waitForSelector(".guide-modal", { state: "detached", timeout: 5000 });
+  await Promise.all([page.waitForNavigation(), page.click("#btn-malfunctions")]);
+  await page.waitForSelector('html[data-boot="ready"]', { timeout: 30000 });
+  await page.evaluate(() => window.dispatchLab.seek(200));
+  await page.click("#tab-story");
+  await visit("Neu-Frankfurt with malfunctions: trains broken down, the story");
+  await page.click('.map-views button:nth-child(2)');
+  await visit("Neu-Frankfurt with malfunctions: around the Hbf");
+  await page.click("#tab-events");
+  await visit("Neu-Frankfurt with malfunctions: breakdowns among the events");
+  await page.click("#tab-method");
+  await page.evaluate(() => document.querySelector(".malf-test")?.scrollIntoView());
+  await visit("Neu-Frankfurt with malfunctions: the method and the test");
+  await page.click("#btn-about");
+  await page.waitForSelector(".guide-modal", { timeout: 5000 });
+  await page.click('.guide-nav-btn[data-chapter="results"]');
+  await visit("Neu-Frankfurt with malfunctions: the guide's results");
   await page.keyboard.press("Escape");
 }
 

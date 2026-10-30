@@ -30,9 +30,12 @@ const platformKeys = (agent, k) => new Set(agent.waypoints[k].filter((w) => w.di
 /**
  * opts.bookings: for a run replayed from Python, the stops it booked in Python's hash order
  * (data/<map>/reference.json), which the engine books where Python did (js/engine/env.js).
+ * opts.malfunctions: with malfunctions on, the draws of flatland's malfunction generator
+ * (data/<map>/malfunctions.json), which the engine replays: trains break down where the Python run's
+ * did (js/engine/env.js). null: malfunctions off, as in the challenge's runner.
  */
-export function simulate(scenario, controller, { bookings = [] } = {}) {
-  const env = new RailEnv(scenario, { bookings });
+export function simulate(scenario, controller, { bookings = [], malfunctions = null } = {}) {
+  const env = new RailEnv(scenario, { bookings, malfunctions });
   env.ledger = [];
   const agents = scenario.agents;
   const n = agents.length;
@@ -48,6 +51,7 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
     lateBy: new Int16Array(cap * n),
     idle: new Int16Array(cap * n),
     platform: new Int8Array(cap * n), // the stop whose platform the train stands on, 0 for none
+    malf: new Int8Array(cap * n), // steps of its breakdown still ahead after the step (the malfunction counter)
     total: new Float64Array(cap),
     trainTotal: new Float64Array(cap * n)
   };
@@ -69,6 +73,10 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
   const visit = agents.map(() => null);
   const called = agents.map((a) => a.waypoints.map(() => false));
   const stoppedAt = agents.map(() => new Map());
+  // breakdowns so far per train (the engine's count, MalfunctionHandler.num_malfunctions), and per
+  // train the breakdowns that hit it before it was done: [{ step, steps, offMap }]
+  const malfunctionsSeen = agents.map(() => 0);
+  const breakdowns = agents.map(() => []);
   const t0 = performance.now();
 
   runEpisode(env, controller, (e, actions, rewards, total) => {
@@ -83,6 +91,7 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
       frames.speed[o] = a.speed;
       frames.action[o] = actions[i];
       frames.blocked[o] = e.lastStep[i].blocked ? 1 : 0;
+      frames.malf[o] = a.malfunctionDown;
       frames.trainTotal[o] = frames.trainTotal[o - n] + rewards[i].v;
       const tt = timetable[i];
       const prevPos = frames.pos[o - n];
@@ -95,6 +104,17 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
         // same step: the simulator finishes it at once and removes it, so it never shows on the map.
         tt.entered = t;
         events.push({ step: t, train: i, kind: "enter", late: Math.max(0, t - a.earliestDeparture), atTarget: true });
+      }
+      // A breakdown: a draw of the malfunction generator set the train's counter this step (only a
+      // train without a breakdown running takes one). It stands for the counter's value plus this
+      // step. A train already done is not affected.
+      if (a.malfunctions > malfunctionsSeen[i]) {
+        malfunctionsSeen[i] = a.malfunctions;
+        if (a.state === STATE.MALFUNCTION || a.state === STATE.MALFUNCTION_OFF_MAP) {
+          const b = { step: t, steps: a.malfunctionDown + 1, offMap: a.state === STATE.MALFUNCTION_OFF_MAP };
+          breakdowns[i].push(b);
+          events.push({ step: t, train: i, kind: "breakdown", steps: b.steps, offMap: b.offMap, onPlatform: visit[i] ? visit[i].stops[0] : 0 });
+        }
       }
       // leaving a platform
       if (visit[i] && a.pos !== prevPos) {
@@ -183,7 +203,7 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
     booked.get(k).items.push(entry);
   }
   events.push(...booked.values());
-  const order = { enter: 0, reach: 1, stop: 2, leave: 3, pass: 3, collision: 4, arrive: 5, account: 6 };
+  const order = { breakdown: 0, enter: 0, reach: 1, stop: 2, leave: 3, pass: 3, collision: 4, arrive: 5, account: 6 };
   events.sort((x, y) => x.step - y.step || order[x.kind] - order[y.kind] || x.train - y.train);
 
   return {
@@ -195,6 +215,8 @@ export function simulate(scenario, controller, { bookings = [] } = {}) {
     ledger: env.ledger,
     timetable,
     events,
+    malfunctions: Boolean(malfunctions), // whether the run had malfunctions on
+    breakdowns, // per train: the breakdowns that hit it before it was done
     ambiguous: env.ambiguous, // stops the engine could not book as the Python run did
     choices: env.choices, // stops it booked as recorded, among two or more platforms the train stood on
     bookedAt: env.bookedAt, // "train:stop" → the platform's key the stop is booked at (null: never reached)
@@ -214,6 +236,9 @@ export function breakdown(run, t) {
   return out;
 }
 
+/** How much longer a breakdown lasts, from the malfunction counter after the step. */
+const brokenFor = (left) => (left > 0 ? `, ${left} more ${left === 1 ? "step" : "steps"}` : ", its last step");
+
 /** Steps a train may stand still, beyond its departure time, before it counts as stuck. */
 export const STUCK_STEPS = 40;
 
@@ -228,10 +253,12 @@ export function trainStatus(run, scenario, i, t) {
   if (state === STATE.DONE) return { word: late ? `Arrived ${late} late` : "Arrived on time", tone: late ? "late" : "done", short: "arrived" };
   if (isOffMap(state)) {
     if (last) return { word: "Never departed", tone: "lost", short: "cancelled" };
+    if (state === STATE.MALFUNCTION_OFF_MAP) return { word: `Broken down before entering${brokenFor(f.malf[o])}`, tone: "broken", short: "broken" };
     if (t < a.earliestDeparture) return { word: `Departs at step ${a.earliestDeparture}`, tone: "waiting", short: "waiting" };
     return { word: f.blocked[o] ? "Ready, origin occupied" : "Ready to depart", tone: late ? "late" : "waiting", short: "ready" };
   }
   if (last) return { word: "Did not arrive", tone: "lost", short: "lost" };
+  if (state === STATE.MALFUNCTION) return { word: `Broken down${brokenFor(f.malf[o])}`, tone: "broken", standing: true, platform: f.platform[o] || null, short: "broken" };
   if (f.blocked[o]) return { word: "Blocked by a train ahead", tone: "blocked", short: "blocked" };
   const standing = state === STATE.STOPPED;
   const platform = f.platform[o] || null;

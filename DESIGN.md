@@ -9,7 +9,7 @@ One page that a jury, a team or a curious engineer can open and understand in a 
 ## 2. The shell (Rebate Hunter's)
 
 - **Header**: the page icon (Vici's flag in a lilac hexagon cell, the colour of a prototype's card on Victor's website), the name with the map and its number of trains under it, the map switch (Neu-Frankfurt, Köln; a segmented control like the run switch, the map on screen pressed), the black-and-white tape badge with the word SIMULATION, *How it works* (the guide), the theme toggle, and four KPI tiles: the score so far, the distance to the leaderboard's −37,374 (on both maps), trains arrived, stops served.
-- **Control bar**: the run switch (each run with its series colour and final score), Play (the one solid merlot button), four step buttons, three speeds, the timeline with its step label, and the playback status as a Vici tag with a hexagon pip.
+- **Control bar**: the run switch (each run with its series colour and final score), the **Malfunctions** switch beside it (one toggle button in the run switch's segmented look, pressed while the challenge's malfunctions are on, its zap in the danger tone then; it loads the same map at the same run and step with them on or off, so a moment can be compared both ways), Play (the one solid merlot button), four step buttons, three speeds, the timeline with its step label, and the playback status as a Vici tag with a hexagon pip. On a phone the Malfunctions switch drops under the run switch, across the bar.
 - **Workspace**: the network map (62 %), with its two views and the grid switch at its top right, and a tabbed panel (38 %): Story, Score, Trains, Events, Method.
 - **Footer**: how the numbers come about (checked against the Python runner) and Vici's byline with Victor's LinkedIn and website. The app links to its author, never to its own source code.
 - **Boot screen** while the browser simulates the map's runs, with what it is doing and, if a file is missing, why it stopped.
@@ -34,9 +34,10 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 | Standing (at a platform or holding) | hollow | ink outline |
 | Blocked by a train in its way | filled, with a dashed ring that pulses | danger fill and outline |
 | Stuck (standing 40 steps past its time) | hollow, with the dashed ring | danger outline on the danger background |
+| Broken down (malfunctions on) | hatched at 45°, like a closed track, its number on a halo of the surface | danger stripes and outline on the surface |
 | Selected | an ink ring around it | — |
 
-`tests/tokens.mjs` measures every one of these pairs for WCAG 2.2 contrast in both themes (4.5:1 for text, 3:1 for marks) and reports how far the states stay apart under colour-vision deficiencies. Behind and blocked stay close in colour for tritanopia (light theme) and deuteranopia (dark theme); there the dashed ring around a blocked train tells them apart.
+`tests/tokens.mjs` measures every one of these pairs for WCAG 2.2 contrast in both themes (4.5:1 for text, 3:1 for marks) and reports how far the states stay apart under colour-vision deficiencies. Behind and blocked stay close in colour for tritanopia (light theme) and deuteranopia (dark theme); there the dashed ring around a blocked train tells them apart. A broken-down train shares the danger family with a blocked or stuck one: the hatch, the only hatched state, tells it apart from both, and its stripes are a pattern in the marker's own units (`#dl-hatch`), so they keep their spacing at every marker size.
 
 ## 4. The map
 
@@ -56,7 +57,9 @@ Every colour is one of Vici's semantic tokens, so both themes follow from one se
 - **Events**: newest first, up to the step on screen; each jumps to its step and picks its train.
 - **Method**: what runs in the browser, how it is checked, the runs, reading the map, how the score works (on Köln with the three stops of the optimized run booked in Python's hash order, the two scores the hash seed allows, and the early departures the booking shown counts), and the limits.
 
-**The situation line** under the map's title says in a few words what is going on at the step on screen, in the tone of its state: a gridlock (danger), trains held back by trains in their way (danger), trains waiting at their entry (muted), all trains arrived (success). On a small phone it uses its short form ("Gridlock: 12 trains stuck").
+**The situation line** under the map's title says in a few words what is going on at the step on screen, in the tone of its state: a gridlock (danger), trains held back by trains in their way (danger), with malfunctions on trains broken down on the network (danger text, its marker hatched), trains waiting at their entry (muted), all trains arrived (success). On a small phone it uses its short form ("Gridlock: 12 trains stuck").
+
+**With malfunctions on** the page is the same page: the legend gains "Broken down", the Story tab counts the breakdowns among the run's figures, tells the first breakdown on the network as a moment (a danger stripe; the first breakdowns hit trains still waiting to enter, which the map cannot show) and says under "Why it scores" what the run scores without malfunctions and the factor between the two; the Score tab's comparison says its runs ran with malfunctions (and the seed) and the current best without; the Events tab lists every breakdown (a dashed danger stripe, the hatch's counterpart); the Trains tab says how many steps a broken-down train has left; the Method tab explains the malfunctions, the seed and the replayed draws, and summarises the test over 100 seeds in a table; the guide's results open with a note on the breakdowns and the scores without them.
 
 ## 5a. The guide
 
@@ -83,6 +86,7 @@ From Rebate Hunter:
 - The playback status is a Vici tag at control height (44 px), so it lines up with the bar.
 - The first visit opens a seven-chapter guide instead of a short intro window: the page has to explain a challenge its reader may never have heard of.
 - A second scenario sits behind a switch in the header, not in a menu: the two maps are the page's two subjects, and a link can open either (`?map=koeln`, `?map=frankfurt`; without one the page opens on Köln). Switching loads the other map's page.
+- The Malfunctions switch sits beside the run switch, not in the header: the header has no room left on a 1,920 or 1,440 px screen without wrapping, and in the control bar the timeline takes up the width (it keeps 267 px at 1,280). Like the map switch it loads a page (`?malfunctions=on`), at the same run and step, rather than swapping the runs in place: every module reads its runs once.
 
 From Vici:
 - Over the railway's grid the honeycomb gives way to a plain canvas with the grid's squares on it; around the grid it stays the map's background, and with the grid switched off it fills the map again.
@@ -101,4 +105,4 @@ From Vici:
 | `tests/page-icon.mjs` | the page icon in the header, the boot screen and `favicon.svg` |
 | `tests/vici-files.mjs` | `vici/` is Vici v1.0.0, unchanged |
 | `tests/layout.mjs` | nine viewports from 1920 × 1080 over a tablet to 320 × 640, on both maps: no overflow, one-row control bar, nothing covering the drawing or another name, the map's tools (views and grid switch) inside its panel, the run's title and the situation line never cut, target sizes; both guides' seven chapters at each (inside the window, nothing wider than the chapter, drawings' words 10 px or larger) |
-| `tests/smoke.mjs` | the guide (chapters, Next, Back, focus, Watch buttons), the Story tab (moments, the situation line, the next run), the map switch (Köln by default, Neu-Frankfurt and back, links to a map, a run and a step) and the grid (a line along every cell edge on both maps, under the network, on the drawing's cells in both views, faint in both themes, the Grid switch and its memory) among the main flows |
+| `tests/smoke.mjs` | the guide (chapters, Next, Back, focus, Watch buttons), the Story tab (moments, the situation line, the next run), the map switch (Köln by default, Neu-Frankfurt and back, links to a map, a run and a step), the grid (a line along every cell edge on both maps, under the network, on the drawing's cells in both views, faint in both themes, the Grid switch and its memory) and the Malfunctions switch (off by default, on and off at the same run and step, the Python runner's scores both ways, broken-down trains hatched where Python has them, the story, events and Method tab) among the main flows |

@@ -29,7 +29,7 @@ const COMMANDS = [
   { icon: "more", name: "Do nothing", text: "Carry on as before: moving on, or standing still." }
 ];
 
-const AREA_ICONS = { maps: "pin", runs: "play", map: "map", kpis: "chart", panel: "book" };
+const AREA_ICONS = { maps: "pin", malfunctions: "zap", runs: "play", map: "map", kpis: "chart", panel: "book" };
 
 /**
  * Opens the guide for the map on screen. ctx: { map, runList, scenario, network, runs, floor }.

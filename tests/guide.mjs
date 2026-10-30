@@ -6,6 +6,9 @@
 // when each penalty is booked, trains turning round at Neu-Frankfurt's Hauptbahnhof, Köln's trains
 // done as they enter and the trains its planner leaves out; and the leaderboard's figure from the
 // project brief, the same on both maps. Each figure must also appear in the guide's text as stated.
+// With malfunctions on (the page's switch), the guide tells the runs with malfunctions: their scores,
+// arrivals, collisions and stops as the Python traces with malfunctions have them, the breakdowns in
+// each run, the seed, and the runs' scores without malfunctions as the reference gives them.
 // Usage: node tests/guide.mjs [frankfurt|koeln]
 import { loadScenario } from "../js/engine/env.js";
 import { simulate } from "../js/sim.js";
@@ -16,7 +19,7 @@ import { mapById } from "../js/maps.js";
 import { OrderedController } from "../js/controllers/ordered.js";
 import { ReplayController } from "../js/controllers/replay.js";
 import { readJson, traceFacts } from "./lib/trace-facts.mjs";
-import { MAP_IDS, fixturePath, mapPath, planPath, referencePath } from "./lib/maps.mjs";
+import { MAP_IDS, fixturePath, malfunctionsPath, mapPath, planPath, referencePath } from "./lib/maps.mjs";
 
 const results = [];
 const check = (ok, what) => results.push([ok, what]);
@@ -375,11 +378,51 @@ function checkKoeln({ data, rules, network, F, text, py, says, traces }) {
   says("From gridlock to every train at its destination", "the results' title");
 }
 
+/**
+ * The guide with malfunctions on: built from the runs with malfunctions as the page builds it, its
+ * figures held against the Python traces with malfunctions, the draws' seed and the reference.
+ */
+function checkMalfunctions(id) {
+  const map = mapById(id);
+  const data = readJson(mapPath(id));
+  const scenario = loadScenario(data);
+  const network = describe(data, map);
+  const runList = RUNS.filter((r) => map.runs.includes(r.id));
+  const full = readJson(referencePath(id));
+  const mal = readJson(malfunctionsPath(id));
+  const reference = { ...full, runs: full.malfunctions.runs, normal: { runs: full.runs } };
+  const runs = new Map(runList.map((r) => [r.id, simulate(scenario, r.id === "baseline" ? new OrderedController() : new ReplayController(readJson(planPath(id, "malfunctions")), r.id), { bookings: reference.runs[r.id].bookings, malfunctions: mal.draws })]));
+  const F = guideFacts({ map, runList, scenario, network, runs, malfunctions: { on: true, seed: mal.seed }, reference });
+  const text = chapters(F).map((c) => [c.nav, c.title, c.lead, JSON.stringify(c.blocks)].join(" ")).join(" ");
+  const py = Object.fromEntries(runList.map((r) => [r.id, traceFacts(r.id, data, id, "malfunctions")]));
+  const says = (str, what) => check(text.includes(str), `${id} with malfunctions: the guide says "${str}" (${what})`);
+  const b = py.baseline;
+  const o = py.optimized;
+  says(`as with the challenge's malfunctions switched on (seed ${mal.seed})`, "the seed");
+  says(`${fmt(b.breakdowns)} breakdowns in the baseline, ${fmt(o.breakdowns)} in the optimized run, from the same draws`, "the breakdowns of each run, as the Python traces have them");
+  says(`Without them the baseline scores ${fmt(full.runs.baseline.reward, 1)} and the optimized run ${fmt(full.runs.optimized.reward, 1)}`, "the runs' scores without malfunctions, as the reference has them");
+  says(fmt(b.score, 1), "the baseline's score with malfunctions");
+  says(fmt(o.score, 1), "the optimized score with malfunctions");
+  check(b.score === full.malfunctions.runs.baseline.reward && o.score === full.malfunctions.runs.optimized.reward, `${id} with malfunctions: the traces' scores are the reference's (${b.score}, ${o.score})`);
+  says(`${b.collisions} collisions.`, "the baseline's collisions with malfunctions");
+  says(`${b.arrived} of ${b.n} trains arrive`, "the baseline's arrivals with malfunctions");
+  check(o.collisions === 0 && o.arrived === o.n, `${id} with malfunctions: the optimized run has no collision (${o.collisions}) and every train arrives (${o.arrived} of ${o.n})`);
+  says(`trains arrive by step ${fmt(o.lastArrival)}`, "the optimized run's last arrival with malfunctions");
+  says(o.served === o.stops ? `all ${o.stops} stops are served, whatever breaks down` : `${o.served} of ${o.stops} stops are served`, "the optimized run's stops with malfunctions");
+  says("Run in Python under the same breakdowns, replayed here", "where the optimized run comes from");
+  says("they are on now", "the how-to says malfunctions are on");
+  says("with malfunctions on, a hatched hexagon is a train broken down, standing where it broke down", "the how-to names the broken-down trains' hatch");
+}
+
 const maps = process.argv.slice(2).length ? process.argv.slice(2) : MAP_IDS;
 for (const id of maps) {
   const s = setup(id);
   (id === "koeln" ? checkKoeln : checkFrankfurt)(s);
   checkLeaderboard(s);
+  s.says("The switch beside the runs turns on the challenge's malfunctions", "the Malfunctions switch, in the how-to");
+  s.says("and so does the page until you switch them on", "malfunctions are off by default");
+  check(!s.text.includes("hatched hexagon"), `${id}: without malfunctions the how-to does not mention the broken-down trains' hatch`);
+  checkMalfunctions(id);
 }
 
 for (const [ok, what] of results) console.log(`${ok ? "PASS" : "FAIL"}  ${what}`);

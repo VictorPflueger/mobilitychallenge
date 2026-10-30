@@ -10,7 +10,12 @@ export const RUNS = [
     title: "Baseline: drive straight, never wait",
     source: "live",
     does: "The challenge's starting point. Every train takes the shortest way to its destination and never waits: not for other trains, and not at its stations.",
-    how: "Runs live in your browser: a port of the challenge's OrderedController reads the same view of the tracks ahead that the Python version reads."
+    how: "Runs live in your browser: a port of the challenge's OrderedController reads the same view of the tracks ahead that the Python version reads.",
+    // With malfunctions on (the Malfunctions switch beside the runs): what changes, if anything.
+    malfunctions: {
+      does: "The challenge's starting point. Every train takes the shortest way to its destination and never waits: not for other trains, and not at its stations. A breakdown changes nothing in what it does.",
+      how: "Runs live in your browser: a port of the challenge's OrderedController reads the same view of the tracks ahead that the Python version reads. Its trains break down where the challenge's malfunction generator made them break down in the Python run."
+    }
   },
   {
     id: "optimized",
@@ -18,8 +23,18 @@ export const RUNS = [
     title: "Optimized: routes, stops and times planned",
     source: "plan",
     does: "Plans every train's route, its stops and its timing together before the first step, so that no train ever blocks another and trains halt at their stops as close to their timetables as the track allows. Then it keeps improving the plan, a few trains at a time.",
-    how: "Planned in Python by PlannerController v2 (a few minutes of search) and replayed here: your browser simulates and scores every step of it."
+    how: "Planned in Python by PlannerController v2 (a few minutes of search) and replayed here: your browser simulates and scores every step of it.",
+    malfunctions: {
+      does: "Plans every train's route, stops and timing before the first step, as without malfunctions. From the first breakdown on it follows that plan in a safe mode: every train keeps its planned route and the planned order of trains through every cell, enters a cell only once the trains planned before it have left it, still stops where its plan stops and never leaves early. Delays spread, but no train runs into another.",
+      how: "Run in Python by PlannerController v2 under the same breakdowns, through the challenge's runner, and replayed here: your browser simulates and scores every step of it."
+    }
   }
 ];
 
 export const runById = (id) => RUNS.find((r) => r.id === id);
+
+/** A run's words for the page on screen: with malfunctions on, its does and how under them. */
+export function runText(id, malfunctionsOn) {
+  const r = runById(id);
+  return malfunctionsOn && r.malfunctions ? { ...r, ...r.malfunctions } : r;
+}

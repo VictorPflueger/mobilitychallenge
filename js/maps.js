@@ -56,6 +56,16 @@ export function mapFromSearch(search) {
   return mapById(id) || mapById(DEFAULT_MAP);
 }
 
+/**
+ * Whether the address switches the challenge's malfunctions on (?malfunctions=on): trains then break
+ * down at random, as with the loader's use_malfunctions=True, seeded as data/<map>/malfunctions.json
+ * says. Off when the address says nothing, as in the challenge's runner.
+ */
+export function malfunctionsFromSearch(search) {
+  const v = (new URLSearchParams(search).get("malfunctions") || "").toLowerCase();
+  return v === "on" || v === "1" || v === "true";
+}
+
 /** data/<id>/<file>: where the page loads a map's files from. */
 export const dataPath = (map, name) => `data/${map.id}/${name}`;
 

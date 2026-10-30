@@ -36,6 +36,13 @@
 //             scores, tiles, views, guide and story against the Python runner's; links to a map, a
 //             run and a step (?map=koeln from before Köln became the default among them), a link
 //             without a map; an unknown map or a run the map does not have falls back
+//   malfunctions  the Malfunctions switch beside the runs, on both maps: off by default; on, at the
+//             same run and step (?malfunctions=on), both runs with the Python runner's scores with
+//             malfunctions and its checks, the trains Python has broken down drawn hatched, the
+//             legend, the situation line, the first breakdown on the network in the story (its
+//             train picked, drawn broken down), the first breakdown in the events, the comparison's
+//             note, the scores without malfunctions, the Method tab's seed, draws and test table; the map
+//             switch keeps malfunctions on; off again, the runs without them
 // Usage: node tests/smoke.mjs [case ...]
 import { APP_ROOT, SKIP_INTRO, launchBrowser, serveStatic, wanted, NETWORK_NOISE } from "./lib/harness.mjs";
 import { readFileSync } from "node:fs";
@@ -156,6 +163,7 @@ try {
       const rows = await page.$$eval(".compare-row", (l) => l.map((r) => r.dataset.run));
       check(JSON.stringify(rows) === JSON.stringify(["baseline", "leaderboard", "optimized"]) && (await text(page, ".compare .vc-chart__title")) === "Three scores on the same scenario", `boot: ${name}: three scores compared, the current best after the baseline (${rows.join(", ")})`);
       check(await text(page, '.compare-row[data-run="leaderboard"] .compare-value') === "−37,374" && (await text(page, '.compare-row[data-run="leaderboard"] .compare-note')).includes("not simulated"), `boot: ${name}: the comparison shows the leaderboard's −37,374, not simulated`);
+      check(!(await text(page, ".compare .vc-chart__subtitle")).includes("malfunctions") && !(await text(page, '.compare-row[data-run="leaderboard"] .compare-note')).includes("malfunctions"), `boot: ${name}: without malfunctions the comparison does not mention them`);
       check((await page.$$(".compare-note.verified")).length === 2, `boot: ${name}: both runs carry 'same score as the Python runner'`);
       const chart = await page.evaluate(() => ({ line: !!document.querySelector(".score-chart .chart-ref"), label: document.querySelector(".score-chart .chart-ref-label")?.textContent, legend: [...document.querySelectorAll(".score-chart .vc-legend li")].map((l) => l.textContent) }));
       check(chart.line && chart.label === "Current best −37,374" && JSON.stringify(chart.legend) === JSON.stringify(["Baseline", "Optimized", "Current best on the leaderboard"]), `boot: ${name}: the score chart draws the current best as its reference line (${chart.label}; ${chart.legend.join(", ")})`);
@@ -794,6 +802,112 @@ try {
       await l.context.close();
     }
     if (results.slice(before).every(([ok]) => ok)) console.log("MAPS_SWITCH_OK");
+  }
+  if (wanted("malfunctions")) {
+    const before = results.length;
+    const median = (xs) => { const v = [...xs].sort((a, b) => a - b); const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+    for (const id of ["koeln", "frankfurt"]) {
+      const ref = refs[id];
+      const mal = readJson(`data/${id}/malfunctions.json`);
+      const test = readJson(`data/${id}/malfunction_test.json`);
+      const { context, page, errors, external } = await open({ url: `?map=${id}&run=optimized&step=200` });
+      await ready(page);
+      check(await page.getAttribute("#btn-malfunctions", "aria-pressed") === "false" && await page.evaluate(() => window.dispatchLab.malfunctions) === false
+        && (await text(page, "#btn-malfunctions")) === "Malfunctions" && !new URL(page.url()).searchParams.has("malfunctions"),
+        `malfunctions: ${id} opens with them off, the switch beside the runs not pressed`);
+      check(await page.$$eval(".legend-item", (l) => l.every((x) => x.textContent !== "Broken down")) && await page.$$eval('.train[data-tone="broken"]', (l) => l.length) === 0, `malfunctions: ${id} without them: no broken-down train, none in the legend`);
+      // On: the same map, run and step, with malfunctions in the address.
+      await Promise.all([page.waitForNavigation(), page.click("#btn-malfunctions")]);
+      await ready(page);
+      const on = new URL(page.url()).searchParams;
+      check(on.get("map") === id && on.get("malfunctions") === "on" && on.get("run") === "optimized" && await stepOnScreen(page) === 200,
+        `malfunctions: ${id}: the switch loads the page with malfunctions on at the same run and step (${new URL(page.url()).search})`);
+      check(await page.getAttribute("#btn-malfunctions", "aria-pressed") === "true" && await page.evaluate(() => [window.dispatchLab.malfunctions, window.dispatchLab.malfunctionSeed].join()) === `true,${mal.seed}`,
+        `malfunctions: ${id}: the switch is pressed, seed ${mal.seed}`);
+      const scores = await page.evaluate(() => Object.fromEntries([...window.dispatchLab.runs].map(([k, r]) => [k, [r.score, r.steps]])));
+      check(Object.entries(ref.malfunctions.runs).every(([k, r]) => scores[k][0] === r.reward && scores[k][1] === r.steps),
+        `malfunctions: ${id}: both runs score exactly what the Python runner scored with malfunctions (${Object.entries(scores).map(([k, v]) => `${k} ${v[0]} in ${v[1]} steps`).join(", ")})`);
+      const runScores = await page.$$eval(".run-switch .run-score", (l) => l.map((x) => x.textContent));
+      check(JSON.stringify(runScores) === JSON.stringify(["baseline", "optimized"].map((k) => fmt(ref.malfunctions.runs[k].reward))), `malfunctions: ${id}: the run switch shows those scores (${runScores.join(", ")})`);
+      await page.click("#tab-score");
+      const verified = await page.$$eval(".compare-note.verified", (l) => l.length);
+      check(verified === 2, `malfunctions: ${id}: both runs carry "same score as the Python runner" (${verified})`);
+      // The comparison says the runs ran with malfunctions, and the leaderboard's figure without.
+      const sub = await text(page, ".compare .vc-chart__subtitle");
+      const bestNote = await text(page, '.compare-row[data-run="leaderboard"] .compare-note');
+      check(sub.includes(`, the runs with malfunctions (seed ${mal.seed});`) && bestNote.endsWith("; without malfunctions"),
+        `malfunctions: ${id}: the comparison says the runs ran with malfunctions and the current best without (${sub} / ${bestNote})`);
+      check(await page.$$eval(".legend-item", (l) => l.some((x) => x.textContent === "Broken down")), `malfunctions: ${id}: the legend names the broken-down trains`);
+      // The trains Python has broken down on the network at a step: exactly the ones drawn hatched.
+      const fx = readJson(fixturePath(id, "trace_optimized_malfunctions.json"));
+      const t = fx.trace.findIndex((row, j) => j >= 100 && row.state.filter((st, i) => st === 5 && row.pos[i]).length >= 2) + 1;
+      const pyBroken = fx.trace[t - 1].state.map((st, i) => (st === 5 && fx.trace[t - 1].pos[i] ? i : null)).filter((i) => i !== null);
+      await page.evaluate((s) => window.dispatchLab.seek(s), t);
+      const drawn = await page.$$eval('.train[data-tone="broken"]', (l) => l.filter((g) => g.style.display !== "none").map((g) => Number(g.dataset.train)).sort((a, b) => a - b));
+      check(JSON.stringify(drawn) === JSON.stringify(pyBroken), `malfunctions: ${id}: at step ${t} the map draws hatched exactly the trains Python has broken down on the network (${drawn.join(", ")}; Python ${pyBroken.join(", ")})`);
+      const fill = await page.$eval(`.train[data-train="${pyBroken[0]}"] .train-hex`, (el) => getComputedStyle(el).fill);
+      check(/url\(.*dl-hatch/.test(fill), `malfunctions: ${id}: a broken-down train is filled with the hatch (${fill})`);
+      check(await text(page, "#map-situation .sit-long") === `${pyBroken.length} trains broken down on the network`, `malfunctions: ${id}: the map's line counts them (${await text(page, "#map-situation .sit-long")})`);
+      const title = await page.$eval(`.train[data-train="${pyBroken[0]}"] title`, (el) => el.textContent);
+      check(/: Broken down, /.test(title), `malfunctions: ${id}: a broken-down train's title says so (${title})`);
+      // The story: the first breakdown on the network, there to see on the map, and the run's score
+      // without malfunctions.
+      const py = traceFacts("optimized", null, id, "malfunctions");
+      const fb = py.firstBreakdownOnMap;
+      await page.click("#tab-story");
+      await page.click('.moment[data-kind="breakdown"]');
+      await page.waitForTimeout(150);
+      const picked = await page.$eval(`.train[data-train="${fb.train}"]`, (g) => [g.style.display !== "none", g.dataset.tone, g.dataset.selected]);
+      check(await stepOnScreen(page) === fb.step && JSON.stringify(picked) === JSON.stringify([true, "broken", "true"]),
+        `malfunctions: ${id}: the story's first breakdown on the network jumps to step ${fb.step} and picks train ${fb.train}, drawn broken down (step ${await stepOnScreen(page)}; drawn, tone, picked: ${picked.join(", ")})`);
+      const normal = await text(page, ".story-normal");
+      check(normal.startsWith(`Without malfunctions the optimized run scores ${fmt(ref.runs.optimized.reward)}`), `malfunctions: ${id}: the story gives the run's score without malfunctions (${normal.slice(0, 80)}…)`);
+      const facts = await page.$$eval(".story-facts li", (l) => l.map((x) => x.textContent));
+      check(facts.some((x) => x === `${py.breakdowns.toLocaleString("en-US")}breakdowns`), `malfunctions: ${id}: the story counts ${py.breakdowns} breakdowns, as Python's trace has them (${facts.join(" | ")})`);
+      // The events: the first breakdown, as Python's trace has it.
+      await page.evaluate((s) => window.dispatchLab.seek(s), py.firstBreakdown.step);
+      await page.click("#tab-events");
+      const ev = await page.$$eval(".event-row", (l) => l.map((x) => [x.dataset.tone, x.querySelector(".event-step").textContent, x.querySelector(".train-badge").textContent, x.querySelector(".event-text").textContent]));
+      check(ev.some((e) => e[0] === "broken" && Number(e[1]) === py.firstBreakdown.step && Number(e[2]) === py.firstBreakdown.train && e[3].includes(`for ${py.firstBreakdown.steps} steps`)),
+        `malfunctions: ${id}: the events list the first breakdown, train ${py.firstBreakdown.train} for ${py.firstBreakdown.steps} steps`);
+      // The Method tab: the seed, the draws, and the test over many seeds.
+      await page.click("#tab-method");
+      const method = await text(page, "#panel-method");
+      check(method.includes(`seed it with ${mal.seed} (env._seed(${mal.seed}) before the episode)`) && method.includes(`replays the ${mal.draws.length.toLocaleString("en-US")} breakdowns the generator draws`),
+        `malfunctions: ${id}: the method gives the seed and the ${mal.draws.length} draws`);
+      const rows = await page.$$eval(".malf-test tbody tr", (l) => l.map((r) => [...r.children].map((c) => c.textContent)));
+      const opt = test.seeds.map((x) => x.optimized);
+      const base = test.seeds.filter((x) => x.baseline).map((x) => x.baseline);
+      const wantRows = [
+        ["Seeds", String(base.length), String(opt.length)],
+        ["Every train arrived", `${base.filter((x) => x.arrived === x.trains).length} of ${base.length}`, `${opt.filter((x) => x.arrived === x.trains).length} of ${opt.length}`],
+        ["Without a collision", `${base.filter((x) => x.collisions === 0).length} of ${base.length}`, `${opt.filter((x) => x.collisions === 0).length} of ${opt.length}`],
+        ["Score, worst to best", `${fmt(Math.min(...base.map((x) => x.reward)))} to ${fmt(Math.max(...base.map((x) => x.reward)))}`, `${fmt(Math.min(...opt.map((x) => x.reward)))} to ${fmt(Math.max(...opt.map((x) => x.reward)))}`],
+        ["Median score", fmt(median(base.map((x) => x.reward))), fmt(median(opt.map((x) => x.reward)))],
+        ["Beats the current best", `${base.filter((x) => x.reward > BEST).length} of ${base.length}`, `${opt.filter((x) => x.reward > BEST).length} of ${opt.length}`]
+      ];
+      check(JSON.stringify(rows) === JSON.stringify(wantRows), `malfunctions: ${id}: the Method tab's test table is the test's (${rows.map((r) => r.join(": ")).join(" | ")})`);
+      check(!errors.length, `malfunctions: ${id}: no console errors (${errors.join(" | ")})`);
+      check(!external.length, `malfunctions: ${id}: no request left the site (${external.join(", ")})`);
+      // The map switch keeps malfunctions on.
+      const other = id === "koeln" ? "frankfurt" : "koeln";
+      await Promise.all([page.waitForNavigation(), page.click(`#map-switch button[data-map="${other}"]`)]);
+      await ready(page);
+      const moved = new URL(page.url()).searchParams;
+      check(moved.get("map") === other && moved.get("malfunctions") === "on" && await page.evaluate(() => window.dispatchLab.malfunctions) === true, `malfunctions: from ${id}, the map switch opens ${other} with malfunctions still on (${new URL(page.url()).search})`);
+      // Off again: the runs without malfunctions, at the same run and step.
+      await page.evaluate(() => { window.dispatchLab.setRun("baseline"); window.dispatchLab.seek(300); });
+      await page.waitForTimeout(500);
+      await Promise.all([page.waitForNavigation(), page.click("#btn-malfunctions")]);
+      await ready(page);
+      const off = new URL(page.url()).searchParams;
+      const offScores = await page.evaluate(() => Object.fromEntries([...window.dispatchLab.runs].map(([k, r]) => [k, r.score])));
+      check(!off.has("malfunctions") && off.get("run") === "baseline" && await stepOnScreen(page) === 300 && await page.getAttribute("#btn-malfunctions", "aria-pressed") === "false"
+        && Object.entries(refs[other].runs).every(([k, r]) => offScores[k] === r.reward),
+        `malfunctions: off again on ${other}: the runs without them, at the same run and step (${new URL(page.url()).search}; ${Object.entries(offScores).map(([k, v]) => `${k} ${v}`).join(", ")})`);
+      await context.close();
+    }
+    if (results.slice(before).every(([ok]) => ok)) console.log("MALFUNCTIONS_SWITCH_OK");
   }
 } finally {
   await server.close();

@@ -31,6 +31,19 @@ platforms (asserted for every such stop), so one interpreter books alike all sto
 the same platforms in the same order and whose trains stood on the same ones; the page works out the
 scores other seeds give from such groups (js/hashorder.js).
 
+With malfunctions (the page's Malfunctions switch). Every run is recorded a second time with the
+loader's malfunctions on (scenario_loader.load(..., use_malfunctions=True): ParamMalfunctionGen with
+rate 0.04 and 2 to 10 steps, which flatland turns into breakdowns of 3 to 11 steps) and the environment's
+random generator seeded with tools/maps.py's MALFUNCTION_SEED before the episode (env._seed(seed)); the
+optimized run replays data/<map>/planner_actions_malfunctions.json, PlannerController v2's actions
+under those breakdowns (check_plan.py --malfunctions). Flatland draws for every train in every step,
+whatever the trains do, so the draws depend on the seed alone: the exporter makes them in a dry run of
+the same generator, seeded the same, that never steps the environment, asserts that each recorded run
+met exactly those, and writes them to data/<map>/malfunctions.json, which the page's engine replays
+(the browser cannot repeat numpy's generator). These traces (trace_<run>_malfunctions.json) also
+record every train's malfunction counter (malf), and reference.json their scores under
+"malfunctions".
+
 Usage, from this folder, with the challenge repository's Python (flatland-rl 4.2.2):
   PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo>              write every map's fixtures
   PYTHONHASHSEED=0 <repo>/.venv/bin/python tools/export_fixtures.py --repo <repo> --check      rebuild and compare
@@ -50,7 +63,7 @@ import warnings
 warnings.filterwarnings('ignore')
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from maps import MAPS, SITE, challenge_map, chosen, fixtures, site_data  # noqa: E402
+from maps import MALFUNCTION_SEED, MAPS, SITE, VARIANTS, challenge_map, chosen, fixtures, plan_file, run_file, site_data  # noqa: E402
 
 
 def load_runner(repo):
@@ -91,17 +104,21 @@ class Replay:
 class Recorder:
     """Wraps env.step on the instance: records the actions and the state after each step."""
 
-    def __init__(self, env):
+    def __init__(self, env, malfunctions=False):
         self.env = env
         self.inner = env.step
         self.actions, self.trace = [], []
         self.t = 0
         self.not_done = []
+        self.malfunctions = malfunctions
         env.step = self.step
 
     def snapshot(self, rewards, dones):
         env = self.env
         row = {'pos': [], 'dir': [], 'state': [], 'speed': [], 'dist': [], 'rew': [], 'done': []}
+        if self.malfunctions:
+            # every train's malfunction counter after the step (MalfunctionHandler.malfunction_down_counter)
+            row['malf'] = [int(a.malfunction_handler.malfunction_down_counter) for a in env.agents]
         for a in env.agents:
             row['pos'].append([int(a.position[0]), int(a.position[1])] if a.position is not None else None)
             row['dir'].append(None if a.direction is None else int(a.direction))
@@ -243,18 +260,81 @@ def distance_map_digest(env):
             'per_agent': [hashlib.sha256(dm[i].tobytes()).hexdigest() for i in range(dm.shape[0])]}
 
 
-def run(tbsim, map_id, scenario):
+# The loader's malfunction parameters (src/scenario_loader.py: MalfunctionParameters(0.04, 2, 10)),
+# checked against the generator it builds.
+MALFUNCTION_PARAMETERS = (0.04, 2, 10)
+
+
+def malfunction_env(map_id, seed, obs_builder_object=None):
+    """The map loaded as the runner loads it, with the loader's malfunctions on and the environment's
+    random generator seeded (env._seed(seed): the loader leaves it to the system's entropy)."""
+    import scenario_loader
+    kw = {} if obs_builder_object is None else {'obs_builder_object': obs_builder_object}
+    env = scenario_loader.load(challenge_map(map_id), use_malfunctions=True, **kw)
+    mfp = env.malfunction_generator.MFP
+    assert (mfp.malfunction_rate, mfp.min_duration, mfp.max_duration) == MALFUNCTION_PARAMETERS, mfp
+    env._seed(seed)
+    return env
+
+
+def dry_draws(map_id, seed, steps):
+    """The malfunction generator's draws for steps 1..steps, without stepping the environment: as
+    MalfunctionEffectsGenerator.on_episode_step_start makes them, one per train in every step, in the
+    trains' order, from the same seeded generator. [[step, train, broken steps], ...] for every draw
+    that breaks a train down (ParamMalfunctionGen.generate returns None for the others)."""
+    env = malfunction_env(map_id, seed)
+    env.reset()
+    gen = env.malfunction_generator
+    out = []
+    for t in range(1, steps + 1):
+        for h in range(len(env.agents)):
+            m = gen.generate(env.np_random)
+            if m is not None:
+                out.append([t, h, int(m.num_broken_steps)])
+    return out
+
+
+class DrawRecorder:
+    """Wraps the malfunction generator's generate() on the instance and records every draw that
+    breaks a train down, with its step and train (flatland calls it once per train per step, in the
+    trains' order). Like Recorder, it changes nothing."""
+
+    def __init__(self, env):
+        self.env = env
+        self.draws = []
+        self.calls = 0
+        gen = env.malfunction_generator
+        self.inner = gen.generate
+        gen.generate = self.generate
+
+    def generate(self, np_random):
+        m = self.inner(np_random)
+        train = self.calls % len(self.env.agents)
+        self.calls += 1
+        if m is not None:
+            self.draws.append([int(self.env._elapsed_steps), train, int(m.num_broken_steps)])
+        return m
+
+
+def run(tbsim, map_id, scenario, variant='normal'):
     import scenario_loader
     from flatland.envs.observations import TreeObsForRailEnv
     MAP = challenge_map(map_id)
-    env = scenario_loader.load(MAP, use_malfunctions=False, obs_builder_object=TreeObsForRailEnv(max_depth=2))
-    rec = Recorder(env)
+    malfunctions = variant == 'malfunctions'
+    if malfunctions:
+        env = malfunction_env(map_id, MALFUNCTION_SEED, TreeObsForRailEnv(max_depth=2))
+        draws = DrawRecorder(env)
+    else:
+        env = scenario_loader.load(MAP, use_malfunctions=False, obs_builder_object=TreeObsForRailEnv(max_depth=2))
+    rec = Recorder(env, malfunctions=malfunctions)
     terms = Decomposer(env)
     if scenario == 'baseline':
         from controller.orderedcontroller import OrderedController
         ctrl = OrderedController()
     else:
-        plan = json.load(open(site_data(map_id, 'planner_actions.json')))
+        plan = json.load(open(site_data(map_id, plan_file(variant))))
+        if malfunctions:
+            assert plan['malfunction_seed'] == MALFUNCTION_SEED, (map_id, 'the plan ran under malfunction seed', plan['malfunction_seed'])
         ctrl = Replay(plan['actions'])
         ctrl.bind(rec)
     # run_episode resets the env first; the snapshot of the reset state is taken by a reset wrapper.
@@ -282,7 +362,7 @@ def run(tbsim, map_id, scenario):
     if scenario == 'optimized':
         assert rec.actions == plan['actions'][:len(rec.actions)] and len(rec.actions) == len(plan['actions']), 'replay diverged'
         assert plan['map_sha256'] == hashlib.sha256(open(MAP, 'rb').read()).hexdigest(), 'the plan was made on another map'
-    return {
+    out = {
         'scenario': scenario,
         'map': os.path.basename(MAP),
         'map_sha256': hashlib.sha256(open(MAP, 'rb').read()).hexdigest(),
@@ -298,6 +378,12 @@ def run(tbsim, map_id, scenario):
         # not part of the trace file: reference.json carries them, with the hash seed
         'bookings': terms.bookings,
     }
+    if malfunctions:
+        out['malfunction_seed'] = MALFUNCTION_SEED
+        # not part of the trace file either: the draws this run met, which export_map compares with
+        # the dry run's
+        out['draws'] = draws.draws
+    return out
 
 
 def hash_seed():
@@ -371,50 +457,86 @@ def same_json(path, text):
 
 
 def export_map(tbsim, map_id, args):
-    """One map's traces, reference scores and rules; returns whether --check found them identical."""
+    """One map's traces, reference scores and rules, and its malfunction draws; returns whether
+    --check found them identical."""
     MAP = challenge_map(map_id)
     scenarios = MAPS[map_id]['runs']
+    variants = [args.variant] if args.variant else list(VARIANTS)
     if args.only and args.only not in scenarios:
         print(f'{map_id}: no {args.only} run on this map')
         return True
     ok = True
-    results = {}
-    for scenario in ([args.only] if args.only else scenarios):
-        data = run(tbsim, map_id, scenario)
-        if scenario == 'optimized':
-            # the plan's own record: the seed it was scored under, and its score
-            plan = json.load(open(site_data(map_id, 'planner_actions.json')))
-            assert plan.get('hash_seed', hash_seed()) == hash_seed(), \
-                f'{map_id}: the plan was scored under PYTHONHASHSEED={plan["hash_seed"]}, this run has {hash_seed()}'
-            assert data['reward'] == plan['reward'], (map_id, 'the replayed plan scores', data['reward'], 'its file says', plan['reward'])
-        results[scenario] = data
-        path = fixtures(map_id, f'trace_{scenario}.json')
-        rel = os.path.relpath(path, SITE)
-        text = json.dumps({k: v for k, v in data.items() if k != 'bookings'}, separators=(',', ':'))
-        line = (f'{map_id:9s} {scenario:9s} reward {data["reward"]:>11.2f}  steps {data["steps"]:4d}  '
-                f'done {data["done_agents"]:2d}/{len(data["initial"]["pos"])}  ')
+    results = {v: {} for v in variants}
+    for variant in variants:
+        for scenario in ([args.only] if args.only else scenarios):
+            data = run(tbsim, map_id, scenario, variant)
+            if scenario == 'optimized':
+                # the plan's own record: the seed it was scored under, and its score
+                plan = json.load(open(site_data(map_id, plan_file(variant))))
+                assert plan.get('hash_seed', hash_seed()) == hash_seed(), \
+                    f'{map_id}: the plan was scored under PYTHONHASHSEED={plan["hash_seed"]}, this run has {hash_seed()}'
+                assert data['reward'] == plan['reward'], (map_id, variant, 'the replayed plan scores', data['reward'], 'its file says', plan['reward'])
+            results[variant][scenario] = data
+            name = run_file(scenario, variant)
+            path = fixtures(map_id, f'trace_{name}.json')
+            rel = os.path.relpath(path, SITE)
+            text = json.dumps({k: v for k, v in data.items() if k not in ('bookings', 'draws')}, separators=(',', ':'))
+            line = (f'{map_id:9s} {name:22s} reward {data["reward"]:>11.2f}  steps {data["steps"]:4d}  '
+                    f'done {data["done_agents"]:2d}/{len(data["initial"]["pos"])}  ')
+            if args.check:
+                same = same_json(path, text)
+                ok &= same
+                print(line + f'{"identical to" if same else "DIFFERS from"} {rel}')
+            else:
+                os.makedirs(fixtures(map_id), exist_ok=True)
+                open(path, 'w').write(text)
+                print(line + f'wrote {rel} ({len(text) // 1024} KiB)')
+    max_steps = json.load(open(MAP))['flatland timetable']['max_episode_steps']
+    if 'malfunctions' in variants:
+        # data/<map>/malfunctions.json: the seed and the malfunction generator's draws for every step of
+        # the episode, from a dry run that never steps the environment. Every recorded run with
+        # malfunctions met exactly these, as far as it went: the draws depend on the seed alone.
+        from flatland.envs.malfunction_generators import _malfunction_prob
+        dry = dry_draws(map_id, MALFUNCTION_SEED, max_steps)
+        for scenario, data in results['malfunctions'].items():
+            assert data['draws'] == [d for d in dry if d[0] <= data['steps']], (map_id, scenario, 'the run met other draws than the dry run')
+        mal = {'map': os.path.basename(MAP), 'map_sha256': hashlib.sha256(open(MAP, 'rb').read()).hexdigest(),
+               'flatland': importlib.metadata.version('flatland-rl'),
+               'seed': MALFUNCTION_SEED, 'seeding': 'env._seed(seed) after scenario_loader.load(..., use_malfunctions=True), before run_episode',
+               'rate': MALFUNCTION_PARAMETERS[0], 'min_duration': MALFUNCTION_PARAMETERS[1], 'max_duration': MALFUNCTION_PARAMETERS[2],
+               'probability': float(_malfunction_prob(MALFUNCTION_PARAMETERS[0])),
+               'broken_steps': [MALFUNCTION_PARAMETERS[1] + 1, MALFUNCTION_PARAMETERS[2] + 1],
+               'steps': max_steps, 'trains': len(json.load(open(MAP))['flatland line']['agent_positions']),
+               'draws': dry,
+               'sha256': hashlib.sha256(json.dumps(dry, separators=(',', ':')).encode()).hexdigest()}
+        mal_path = site_data(map_id, 'malfunctions.json')
+        rel = os.path.relpath(mal_path, SITE)
+        text = json.dumps(mal, separators=(',', ':'))
         if args.check:
-            same = same_json(path, text)
+            same = same_json(mal_path, text)
             ok &= same
-            print(line + f'{"identical to" if same else "DIFFERS from"} {rel}')
+            print(f'{map_id:9s} malfunction seed {MALFUNCTION_SEED}: {len(dry)} draws over {max_steps} steps '
+                  f'{"identical to" if same else "DIFFER from"} {rel}')
         else:
-            os.makedirs(fixtures(map_id), exist_ok=True)
-            open(path, 'w').write(text)
-            print(line + f'wrote {rel} ({len(text) // 1024} KiB)')
-    if not args.only:
+            open(mal_path, 'w').write(text)
+            print(f'{map_id:9s} malfunction seed {MALFUNCTION_SEED}: wrote {rel} ({len(dry)} draws over {max_steps} steps)')
+    if not args.only and not args.variant:
         # data/<map>/reference.json: the Python runner's scores, which the page compares its own with,
-        # the hash seed they were computed under, and each run's stops booked in hash order.
-        ref = {'map': os.path.basename(MAP), 'map_sha256': results['baseline']['map_sha256'],
-               'python': sys.version.split()[0], 'flatland': results['baseline']['flatland'],
+        # the hash seed they were computed under, and each run's stops booked in hash order; under
+        # "malfunctions" the same for the runs with malfunctions, and their seed.
+        brief = lambda rs: {k: {'reward': v['reward'], 'steps': v['steps'], 'bookings': v['bookings']} for k, v in rs.items()}  # noqa: E731
+        ref = {'map': os.path.basename(MAP), 'map_sha256': results['normal']['baseline']['map_sha256'],
+               'python': sys.version.split()[0], 'flatland': results['normal']['baseline']['flatland'],
                'hash_seed': hash_seed(),
-               'runs': {k: {'reward': v['reward'], 'steps': v['steps'], 'bookings': v['bookings']} for k, v in results.items()}}
+               'runs': brief(results['normal']),
+               'malfunctions': {'seed': MALFUNCTION_SEED, 'runs': brief(results['malfunctions'])}}
         ref_path = site_data(map_id, 'reference.json')
         rel = os.path.relpath(ref_path, SITE)
+        scores = [f'{k} {v["reward"]}' for k, v in ref['runs'].items()] + [f'{k} with malfunctions {v["reward"]}' for k, v in ref['malfunctions']['runs'].items()]
         if args.check:
             same = same_json(ref_path, json.dumps(ref))
             ok &= same
-            print(f'{map_id:9s} scores: {", ".join(k + " " + str(v["reward"]) for k, v in ref["runs"].items())} '
-                  f'{"identical to" if same else "DIFFER from"} {rel}')
+            print(f'{map_id:9s} scores: {", ".join(scores)} {"identical to" if same else "DIFFER from"} {rel}')
         else:
             open(ref_path, 'w').write(json.dumps(ref, indent=1))
             print(f'{map_id:9s} wrote {rel}')
@@ -427,16 +549,18 @@ def export_map(tbsim, map_id, args):
     from scaled_penalties import get_scaled_penalties
     import scenario_loader
     from score_floor import score_floor, timing_holds
-    max_steps = json.load(open(MAP))['flatland timetable']['max_episode_steps']
     balanced = get_scaled_penalties(max_steps, profile='balanced')
     env = scenario_loader.load(MAP, use_malfunctions=False)
     env.reset()
     floor = score_floor(env, balanced)
-    for scenario, data in results.items():
-        problems = timing_holds(env, [data['initial']] + data['trace'])
-        assert not problems, (map_id, scenario, problems[:5])
+    checked = []
+    for variant, runs in results.items():
+        for scenario, data in runs.items():
+            problems = timing_holds(env, [data['initial']] + data['trace'])
+            assert not problems, (map_id, variant, scenario, problems[:5])
+            checked.append(run_file(scenario, variant))
     print(f'{map_id:9s} floor: no dispatcher can score better than -{sum(floor)} '
-          f'(the timing it assumes holds in the {", ".join(results)} run{"s" if len(results) > 1 else ""})')
+          f'(the timing it assumes holds in the {", ".join(checked)} run{"s" if len(checked) > 1 else ""})')
     rules = {'map': os.path.basename(MAP), 'max_episode_steps': max_steps,
              'balanced': balanced,
              'target_late_per_step': 1,
@@ -449,7 +573,7 @@ def export_map(tbsim, map_id, args):
         same = same_json(rules_path, json.dumps(rules))
         ok &= same
         print(f'{map_id:9s} penalties for {max_steps} steps {"identical to" if same else "DIFFER from"} {rel}')
-    elif not args.only:
+    elif not args.only and not args.variant:
         open(rules_path, 'w').write(json.dumps(rules, indent=1))
         print(f'{map_id:9s} wrote {rel}')
     return ok
@@ -461,6 +585,7 @@ def main():
     ap.add_argument('--check', action='store_true', help='rebuild and compare with tests/fixtures/ instead of writing')
     ap.add_argument('--map', choices=list(MAPS), help='one map only (default: every map)')
     ap.add_argument('--only', choices=('baseline', 'optimized'), help='one run only')
+    ap.add_argument('--variant', choices=VARIANTS, help='only the runs as the runner runs them (normal) or only those with malfunctions')
     args = ap.parse_args()
     if hash_seed() is None:
         sys.exit('Run with a fixed PYTHONHASHSEED, the one the plans record (PYTHONHASHSEED=0): the reward '
@@ -477,7 +602,7 @@ def main():
         same = same_json(path, json.dumps(sem))
         ok &= same
         print(f'python semantics ({len(sem["sums"])} sums, {len(sem["sets"])} sets) {"identical to" if same else "DIFFER from"} tests/fixtures/python_semantics.json')
-    elif not args.only:
+    elif not args.only and not args.variant:
         open(path, 'w').write(json.dumps(sem, separators=(',', ':')))
         print(f'python semantics: wrote {os.path.relpath(path, SITE)}')
     if args.check:

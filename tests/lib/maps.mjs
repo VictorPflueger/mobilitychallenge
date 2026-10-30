@@ -13,8 +13,23 @@ export const MAP_IDS = Object.keys(MAPS);
 /** data/<id>/<file>: the map as the site serves it. */
 export const mapPath = (id) => `data/${id}/${MAPS[id].file}`;
 
-/** The plan the optimized run replays: PlannerController's actions. */
-export const planPath = (id) => `data/${id}/planner_actions.json`;
+/**
+ * The two ways a map's runs are recorded: as the challenge's runner runs them ("normal"), and with
+ * the challenge's malfunctions on ("malfunctions", the page's Malfunctions switch).
+ */
+export const VARIANTS = ["normal", "malfunctions"];
+
+/** The name a run's files carry: baseline, or baseline_malfunctions. */
+export const runFile = (name, variant = "normal") => (variant === "malfunctions" ? `${name}_malfunctions` : name);
+
+/** The plan the optimized run replays: PlannerController's actions, without or with malfunctions. */
+export const planPath = (id, variant = "normal") => (variant === "malfunctions" ? `data/${id}/planner_actions_malfunctions.json` : `data/${id}/planner_actions.json`);
+
+/** The malfunctions' seed and the generator's draws the page replays with malfunctions on. */
+export const malfunctionsPath = (id) => `data/${id}/malfunctions.json`;
+
+/** The test of both runs with malfunctions over many seeds (tools/malfunction_test.py). */
+export const malfunctionTestPath = (id) => `data/${id}/malfunction_test.json`;
 
 /** The Python runner's scores for the map. */
 export const referencePath = (id) => `data/${id}/reference.json`;

@@ -17,6 +17,26 @@ MAPS = {
     'koeln': {'file': 'kk_36agents.json', 'runs': ('baseline', 'optimized')},
 }
 
+# With malfunctions on (the page's Malfunctions switch), every run of a map is recorded a second
+# time with the loader's malfunctions (scenario_loader.load(..., use_malfunctions=True)) and the
+# environment's random generator seeded with this seed before the episode (env._seed(seed); the
+# loader leaves it to the system's entropy). Seed 1, the first seed of tools/malfunction_test.py,
+# was fixed before any result was seen; both runs of a map meet the same breakdowns.
+MALFUNCTION_SEED = 1
+
+# The two ways a map's runs are recorded: as the challenge's runner runs them, and with malfunctions.
+VARIANTS = ('normal', 'malfunctions')
+
+
+def run_file(run, variant='normal'):
+    """The name a run's files carry: <run>, or <run>_malfunctions."""
+    return run if variant == 'normal' else f'{run}_malfunctions'
+
+
+def plan_file(variant='normal'):
+    """The optimized run's recorded actions: planner_actions.json, or planner_actions_malfunctions.json."""
+    return 'planner_actions.json' if variant == 'normal' else 'planner_actions_malfunctions.json'
+
 
 def challenge_map(map_id):
     """The map's path in the challenge repository, relative to its root (the runner's folder)."""

@@ -1,7 +1,9 @@
 // Dispatch Lab: boots the page. Loads the map the address asks for (?map=frankfurt or ?map=koeln;
 // Köln by default) with its recorded plan, simulates its runs in the browser (the engine scores
 // them), checks the scores against the Python runner's, then builds the header, controls, map and
-// panel and plays the runs back. The map switch in the header loads the other map.
+// panel and plays the runs back. The map switch in the header loads the other map; the Malfunctions
+// switch loads the same map with the challenge's malfunctions on or off (?malfunctions=on), at the
+// same run and step.
 
 import { $, h } from "./dom.js";
 import { icon } from "./icons.js";
@@ -12,7 +14,7 @@ import { ReplayController } from "./controllers/replay.js";
 import { simulate } from "./sim.js";
 import { describe } from "./network.js";
 import { RUNS, runById } from "./runs.js";
-import { MAPS, dataPath, mapFromSearch } from "./maps.js";
+import { MAPS, dataPath, malfunctionsFromSearch, mapFromSearch } from "./maps.js";
 import { balancedPenalties } from "./engine/env.js";
 import { scoreFloor } from "./floor.js";
 import { createKpis } from "./ui/kpis.js";
@@ -36,19 +38,42 @@ async function fetchJson(path) {
   return res.json();
 }
 
+/** A file the page can do without (the malfunction test's summary): null when it cannot be loaded. */
+async function fetchOptional(path) {
+  try { return await fetchJson(path); } catch { return null; }
+}
+
 async function start() {
   const map = mapFromSearch(location.search);
+  const malfunctionsOn = malfunctionsFromSearch(location.search);
   document.documentElement.dataset.map = map.id;
-  say(`Loading ${map.name}…`);
-  // The map, the Python runner's scores, and the plan the optimized run replays.
-  const [mapData, reference, plan] = await Promise.all([
+  document.documentElement.dataset.malfunctions = malfunctionsOn ? "on" : "off";
+  say(`Loading ${map.name}${malfunctionsOn ? " with malfunctions" : ""}…`);
+  // The map, the Python runner's scores, and the plan the optimized run replays. With malfunctions
+  // on: the plan PlannerController v2 followed under them, their seed and the generator's draws, and
+  // the test of both runs over many seeds (tools/malfunction_test.py).
+  const [mapData, fullReference, plan, draws, test] = await Promise.all([
     fetchJson(dataPath(map, map.file)),
     fetchJson(dataPath(map, "reference.json")),
-    fetchJson(dataPath(map, "planner_actions.json"))
+    fetchJson(dataPath(map, malfunctionsOn ? "planner_actions_malfunctions.json" : "planner_actions.json")),
+    malfunctionsOn ? fetchJson(dataPath(map, "malfunctions.json")) : null,
+    malfunctionsOn ? fetchOptional(dataPath(map, "malfunction_test.json")) : null
   ]);
   const scenario = loadScenario(mapData);
   const network = describe(mapData, map);
   done(`${map.name}: ${scenario.rail.height} × ${scenario.rail.width} cells, ${scenario.agents.length} trains, ${count(scenario.maxSteps)} steps`);
+  // The Python runner's scores for the runs on screen: as the runner runs them, or with malfunctions
+  // (reference.json keeps the runs without them under normal, for comparison).
+  const reference = malfunctionsOn
+    ? { ...fullReference, runs: fullReference.malfunctions.runs, normal: { runs: fullReference.runs } }
+    : fullReference;
+  const malfunctions = malfunctionsOn
+    ? { on: true, seed: draws.seed, rate: draws.rate, probability: draws.probability, brokenSteps: draws.broken_steps, draws: draws.draws, plan, test }
+    : { on: false };
+  if (malfunctionsOn) {
+    if (draws.seed !== fullReference.malfunctions.seed || plan.malfunction_seed !== draws.seed) throw new Error(`the malfunctions' seed differs between ${dataPath(map, "malfunctions.json")}, its plan and reference.json`);
+    done(`Malfunctions on: seed ${draws.seed}, ${count(draws.draws.length)} breakdowns drawn over ${count(draws.steps)} steps`);
+  }
 
   const runs = new Map();
   const verified = new Map();
@@ -58,11 +83,12 @@ async function start() {
   };
   const runList = RUNS.filter((r) => map.runs.includes(r.id));
   for (const r of runList) {
-    say(`Simulating the ${r.label.toLowerCase()} run…`);
+    say(`Simulating the ${r.label.toLowerCase()} run${malfunctionsOn ? " with malfunctions" : ""}…`);
     await nextFrame();
-    // The stops the Python run booked in hash order are booked where it booked them (js/engine/env.js).
+    // The stops the Python run booked in hash order are booked where it booked them (js/engine/env.js);
+    // with malfunctions on, trains break down where the generator's draws say.
     const ref = reference.runs[r.id];
-    const run = simulate(scenario, controllers[r.id](), { bookings: ref?.bookings || [] });
+    const run = simulate(scenario, controllers[r.id](), { bookings: ref?.bookings || [], malfunctions: malfunctionsOn ? draws.draws : null });
     runs.set(r.id, run);
     const same = ref && ref.reward === run.score && ref.steps === run.steps && !run.ambiguous.length;
     verified.set(r.id, same);
@@ -75,7 +101,7 @@ async function start() {
   // What every part of the page compares against: the leaderboard's figure (js/maps.js), and the
   // floor no dispatcher can beat (js/floor.js).
   const floor = scoreFloor(scenario, balancedPenalties(scenario.maxSteps));
-  build({ map, runList, scenario, network, runs, verified, reference, floor });
+  build({ map, runList, scenario, network, runs, verified, reference, floor, malfunctions });
 }
 
 function build(ctx) {
@@ -90,9 +116,11 @@ function build(ctx) {
   };
   const startStep = Number(params.get("step"));
 
-  // The header says which map is on screen, and the map switch loads the other one.
+  // The header says which map is on screen, and the map switch loads the other one; the Malfunctions
+  // switch loads this one with malfunctions on or off.
+  const { malfunctions } = ctx;
   $("#brand-sub").textContent = `T-Brain Mobility Challenge · ${map.name}, ${count(scenario.agents.length)} trains`;
-  buildMapSwitch($("#map-switch"), map, () => state.run);
+  buildMapSwitch($("#map-switch"), map, () => state.run, malfunctions.on);
 
   const kpis = createKpis($("#kpis"), ctx);
   const controls = createControls($("#controls"), runList, {
@@ -100,9 +128,10 @@ function build(ctx) {
     onPlay: () => togglePlay(),
     onStep: (d) => { pause(); seek(Math.round(state.t) + d); },
     onSeek: (t) => { pause(); seek(t); },
-    onSpeed: (id) => { state.speed = id; controls.setSpeed(id); }
-  });
-  const mapView = createMap($("#map"), { map, scenario, network, onSelect: (i) => select(state.selected === i ? null : i) });
+    onSpeed: (id) => { state.speed = id; controls.setSpeed(id); },
+    onMalfunctions: () => switchMalfunctions(map, malfunctions.on, state.run, Math.floor(state.t))
+  }, malfunctions);
+  const mapView = createMap($("#map"), { map, scenario, network, malfunctions: malfunctions.on, onSelect: (i) => select(state.selected === i ? null : i) });
   const panel = createPanel($("#panel"), {
     ...ctx,
     initialRun: state.run,
@@ -114,7 +143,7 @@ function build(ctx) {
 
   // The guide; a run's Watch button plays that run from its start, with its story beside it.
   const watch = (id) => { setRun(id); panel.show("story"); seek(0); play(); };
-  const guide = () => openGuide({ map, runList, scenario, network, runs, floor: ctx.floor }, { onWatch: watch });
+  const guide = () => openGuide({ map, runList, scenario, network, runs, floor: ctx.floor, malfunctions, reference: ctx.reference }, { onWatch: watch });
   $("#btn-about").addEventListener("click", guide);
   const facts = new Map([...runs].map(([id, r]) => [id, runFacts(r, scenario)]));
 
@@ -207,12 +236,16 @@ function build(ctx) {
   function togglePlay() { if (state.playing) pause(); else play(); }
 
   // The map, run and step on screen live in the address, so a moment can be shared as a link
-  // (?map=koeln&run=baseline&step=600). The map is always named, also on the default one.
+  // (?map=koeln&run=baseline&step=600). The map is always named, also on the default one; malfunctions
+  // only when they are on (?map=koeln&malfunctions=on&run=optimized&step=400).
   let rememberTimer = 0;
   function remember() {
     clearTimeout(rememberTimer);
     rememberTimer = setTimeout(() => {
-      const p = new URLSearchParams({ map: map.id, run: state.run, step: String(Math.floor(state.t)) });
+      const p = new URLSearchParams({ map: map.id });
+      if (malfunctions.on) p.set("malfunctions", "on");
+      p.set("run", state.run);
+      p.set("step", String(Math.floor(state.t)));
       for (const [key, value] of new URLSearchParams(location.search)) if (!p.has(key)) p.append(key, value);
       history.replaceState(null, "", `${location.pathname}?${p}`);
     }, 400);
@@ -228,7 +261,7 @@ function build(ctx) {
   if (!guideSeen()) guide();
 
   // For tests and the curious: the runs as computed in this browser.
-  window.dispatchLab = { map: map.id, runs, state, scenario, seek, setRun, play, pause, select, guide, facts };
+  window.dispatchLab = { map: map.id, malfunctions: malfunctions.on, malfunctionSeed: malfunctions.on ? malfunctions.seed : null, runs, state, scenario, seek, setRun, play, pause, select, guide, facts };
 }
 
 /**
@@ -236,17 +269,31 @@ function build(ctx) {
  * that map's page, its address naming the map (?map=frankfurt, ?map=koeln); its runs are simulated
  * afresh, and the run on screen stays if the other map has it.
  */
-function buildMapSwitch(root, current, currentRun) {
+function buildMapSwitch(root, current, currentRun, malfunctionsOn) {
   for (const m of MAPS) {
     const b = h("button", { type: "button", "aria-pressed": String(m.id === current.id), dataset: { map: m.id } }, m.name);
     b.addEventListener("click", () => {
       if (m.id === current.id) return;
       const p = new URLSearchParams({ map: m.id });
+      if (malfunctionsOn) p.set("malfunctions", "on");
       if (m.runs.includes(currentRun())) p.set("run", currentRun());
       location.assign(`${location.pathname}?${p}`);
     });
     root.appendChild(b);
   }
+}
+
+/**
+ * The Malfunctions switch (js/ui/controls.js): loads the same map with the challenge's malfunctions on
+ * or off (?malfunctions=on), at the run and step on screen, so a moment can be compared with and
+ * without breakdowns; the map's runs are simulated afresh.
+ */
+function switchMalfunctions(map, on, run, step) {
+  const p = new URLSearchParams({ map: map.id });
+  if (!on) p.set("malfunctions", "on");
+  p.set("run", run);
+  if (step > 0) p.set("step", String(step));
+  location.assign(`${location.pathname}?${p}`);
 }
 
 function showBanner(tone, title, text) {
